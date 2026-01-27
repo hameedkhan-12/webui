@@ -1,0 +1,30 @@
+{
+  "name": "excalidraw-monorepo",
+  "version": "1.0.0",
+  "description": "Excalidraw monorepo with NestJS backend, Next.js frontend, and Prisma ORM",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "format": "turbo format",
+    "type-check": "turbo type-check",
+    "clean": "turbo clean && pnpm -r clean"
+  },
+  "keywords": [
+    "monorepo",
+    "turborepo",
+    "nestjs",
+    "nextjs",
+    "prisma",
+    "clerk",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.8.0",
+  "devDependencies": {
+    "turbo": "^2.7.5",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(uuid())
+  clerkId       String    @unique
+  email         String    @unique
+  name          String?
+  avatar        String?
+  role          UserRole  @default(USER)
+  ownedProjects Project[] @relation("ProjectOwner")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model ProjectVersion {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  version  Int
+  snapshot Json
+  message  String?
+
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, version])
+  @@index([projectId])
+}
+
+model Project {
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  description String?
+  thumbnail   String?
+
+  ownerId String
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  versions    ProjectVersion[]
+  publishedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([ownerId])
+  @@index([slug])
+}
