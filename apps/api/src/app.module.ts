@@ -8,6 +8,8 @@ import { ClerkClientProvider } from './providers/clerk-client.provider';
 import { APP_GUARD } from '@nestjs/core';
 import { ClerkAuthGuard } from './auth/clerk-auth.guard';
 import { PrismaModule } from './prisma/prisma.module';
+import { InngestModule } from './inngest/inngest.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     UsersModule,
     ProjectsModule,
+    InngestModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [
@@ -26,7 +30,7 @@ import { PrismaModule } from './prisma/prisma.module';
     {
       provide: APP_GUARD,
       useClass: ClerkAuthGuard,
-    }
+    },
   ],
 })
 export class AppModule {}

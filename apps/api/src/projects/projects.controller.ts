@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, Version } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+  Version,
+} from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { CurrentUser } from 'src/decorators/current-user.decorator';
@@ -14,19 +24,26 @@ export class ProjectsController {
 
   @Version('1')
   @Post()
-  createProject(@CurrentUser() user: User, @Body() createProjectDto: CreateProjectDto) {
+  createProject(
+    @CurrentUser() user: User,
+    @Body() createProjectDto: CreateProjectDto,
+  ) {
     return this.projectsService.createProject(user.id, createProjectDto);
   }
 
   @Version('1')
   @Get(':id')
-  findOneProject(@Param('id') id: string, @CurrentUser() user: User){
+  findOneProject(@Param('id') id: string, @CurrentUser() user: User) {
     return this.projectsService.findOneProject(id, user.id);
   }
 
   @Version('1')
   @Patch(':id')
-  updateProject(@Param('id') id: string, @CurrentUser() user: User, @Body() updateProjectDto: UpdateProjectDto) {
+  updateProject(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+    @Body() updateProjectDto: UpdateProjectDto,
+  ) {
     return this.projectsService.updateProject(id, user.id, updateProjectDto);
   }
 
@@ -44,8 +61,17 @@ export class ProjectsController {
 
   @Version('1')
   @Post(':id/versions')
-  createVersion(@Param('id') id: string, @CurrentUser() user: User, @Body() createVersionDto: CreateVersionDto) {
-    return this.projectsService.createVersion(id, user.id, user.clerkId, createVersionDto);
+  createVersion(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+    @Body() createVersionDto: CreateVersionDto,
+  ) {
+    return this.projectsService.createVersion(
+      id,
+      user.id,
+      user.clerkId,
+      createVersionDto,
+    );
   }
 
   @Version('1')

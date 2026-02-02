@@ -191,19 +191,19 @@ export class ProjectsService {
       orderBy: {
         version: 'desc',
       },
-    })
+    });
 
     const nextVersion = latestVersion ? latestVersion.version + 1 : 1;
 
     return this.prisma.projectVersion.create({
-        data: {
-            projectId,
-            version: nextVersion,
-            snapshot: createVersionDto.snapshot,
-            message: createVersionDto.message,
-            createdBy: userClerkId
-        }
-    })
+      data: {
+        projectId,
+        version: nextVersion,
+        snapshot: createVersionDto.snapshot,
+        message: createVersionDto.message,
+        createdBy: userClerkId,
+      },
+    });
   }
   private generateSlug(name: string): string {
     return name

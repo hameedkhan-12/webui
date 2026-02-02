@@ -15,6 +15,13 @@ enum UserRole {
   ADMIN
 }
 
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id            String    @id @default(uuid())
   clerkId       String    @unique
@@ -23,9 +30,10 @@ model User {
   avatar        String?
   role          UserRole  @default(USER)
   ownedProjects Project[] @relation("ProjectOwner")
+  aiJobs        AIGenerationJob[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([email])
 }
@@ -57,10 +65,39 @@ model Project {
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
 
   versions    ProjectVersion[]
+  aiJobs      AIGenerationJob[]
+  
   publishedAt DateTime?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([ownerId])
   @@index([slug])
+}
+
+model AIGenerationJob {
+  id        String   @id @default(uuid())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  prompt    String
+  context   Json     @default("{}")
+  
+  jobType   String   // 'generate', 'modify', 'suggestions', 'regenerate', 'variations'
+
+  status    JobStatus @default(PENDING)
+  result    Json?
+  error     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([status])
+  @@index([jobType])
 }
