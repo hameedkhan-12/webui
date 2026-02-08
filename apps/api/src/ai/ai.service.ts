@@ -23,9 +23,14 @@ export class AiService {
     private inngest: InngestService,
   ) {}
 
+  /**
+   * Helper method to get user from clerkId and convert to database userId
+   * This is necessary because Clerk uses clerkId but our database relations use the internal user.id
+   */
   private async getUserFromClerkId(clerkId: string) {
     const user = await this.prisma.user.findUnique({
       where: { clerkId },
+      select: { id: true, clerkId: true, email: true },
     });
 
     if (!user) {
@@ -38,9 +43,12 @@ export class AiService {
   async generate(clerkId: string, dto: GenerateDto) {
     const user = await this.getUserFromClerkId(clerkId);
 
+    // Validate project if provided
     if (dto.projectId) {
       await this.validateProjectAccess(user.id, dto.projectId);
     }
+
+    // Create AI generation job
     const job = await this.prisma.aIGenerationJob.create({
       data: {
         userId: user.id,
@@ -73,7 +81,6 @@ export class AiService {
 
   async modify(clerkId: string, dto: ModifyDto) {
     const user = await this.getUserFromClerkId(clerkId);
-
     await this.validateProjectAccess(user.id, dto.projectId);
 
     const project = await this.prisma.project.findUnique({
@@ -104,6 +111,7 @@ export class AiService {
       },
     });
 
+    // Send to Inngest
     await this.inngest.send({
       name: 'ai/modification',
       data: {
@@ -125,7 +133,6 @@ export class AiService {
 
   async getSuggestions(clerkId: string, dto: SuggestionsDto) {
     const user = await this.getUserFromClerkId(clerkId);
-
     await this.validateProjectAccess(user.id, dto.projectId);
 
     const project = await this.prisma.project.findUnique({
@@ -157,6 +164,7 @@ export class AiService {
       },
     });
 
+    // Send to Inngest
     await this.inngest.send({
       name: 'ai/suggestions',
       data: {
@@ -195,6 +203,7 @@ export class AiService {
       throw new NotFoundException('Job not found');
     }
 
+    // Verify user has access to this job
     if (job.userId !== user.id) {
       if (job.projectId) {
         await this.validateProjectAccess(user.id, job.projectId);
@@ -242,6 +251,7 @@ export class AiService {
       },
     });
 
+    // Send to Inngest
     await this.inngest.send({
       name: 'ai/regeneration',
       data: {
@@ -302,6 +312,7 @@ export class AiService {
 
       jobs.push(job);
 
+      // Send to Inngest
       await this.inngest.send({
         name: 'ai/variation',
         data: {
@@ -350,6 +361,7 @@ export class AiService {
       },
     });
 
+    // Send cancellation event to Inngest
     await this.inngest.send({
       name: 'ai/generation.cancelled',
       data: {
@@ -371,7 +383,7 @@ export class AiService {
   ) {
     const user = await this.getUserFromClerkId(clerkId);
 
-    const where: any = { userId: user.id }; // ✅ Use user.id
+    const where: any = { userId: user.id };
 
     if (options?.status) {
       where.status = options.status;
