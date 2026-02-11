@@ -1,7 +1,7 @@
 {
-  "name": "excalidraw-monorepo",
+  "name": "webra-monorepo",
   "version": "1.0.0",
-  "description": "Excalidraw monorepo with NestJS backend, Next.js frontend, and Prisma ORM",
+  "description": "Webra monorepo with NestJS backend, Next.js frontend, and Prisma ORM",
   "private": true,
   "scripts": {
     "build": "turbo build",
