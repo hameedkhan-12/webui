@@ -35,7 +35,7 @@ export class CanvasController {
   constructor(private readonly canvasService: CanvasService) {}
 
   private getSessionId(headers: any): string {
-    return headers['x-session-id'] || uuidv4;
+    return headers['x-session-id'] || uuidv4();
   }
 
   @Version('1')

@@ -45,7 +45,7 @@ async function bootstrap() {
   );
 
   await app.listen(process.env.PORT ?? 3003);
-  console.log(`API is running on port ${process.env.PORT ?? 3003}`);
+  console.log(`API is running on portt ${process.env.PORT ?? 3003}`);
 }
 
 bootstrap();

@@ -79,4 +79,11 @@ export class ProjectsController {
   getVersions(@Param('id') id: string, @CurrentUser() user: User) {
     return this.projectsService.getVersions(id, user.id);
   }
+
+
+  @Version('1')
+  @Get()
+  async findAllProjects(@CurrentUser() user: User) {
+    return this.projectsService.findAllProjects(user.id);
+  }
 }

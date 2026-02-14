@@ -181,6 +181,8 @@ export class CanvasService {
   ) {
     const user = await this.getUserFromClerkId(clerkId);
     await this.verifyProjectAccess(user.id, projectId);
+    console.log('SESSION ID', sessionId);
+    console.log("TYPW offfffff Session ID", typeof sessionId);
 
     const canvas = await this.getOrCreateCanvas(projectId);
     if (dto.parentId) {
