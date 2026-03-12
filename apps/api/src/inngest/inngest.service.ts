@@ -2,15 +2,17 @@
 
 import { Injectable } from '@nestjs/common';
 import { Inngest } from 'inngest';
+import { getConfig } from '@repo/shared';
 
 @Injectable()
 export class InngestService {
   private client: Inngest;
 
   constructor() {
+    const config = getConfig();
     this.client = new Inngest({
       id: 'website-builder',
-      eventKey: process.env.INNGEST_EVENT_KEY,
+      eventKey: config.inngest?.eventKey,
     });
   }
 

@@ -23,6 +23,7 @@
     "db:generate": "prisma generate"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1007.0",
     "@clerk/backend": "^2.29.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^3.2.0",
@@ -32,6 +33,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.12",
     "@nestjs/schedule": "^6.1.0",
+    "@repo/shared": "workspace:*",
     "@webra/database": "workspace:*",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",

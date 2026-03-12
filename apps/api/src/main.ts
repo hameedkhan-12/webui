@@ -5,6 +5,7 @@ import { serve } from 'inngest/express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { InngestService } from './inngest/inngest.service';
 import { inngestFunctions } from './inngest';
+import { getConfig } from '@repo/shared';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -44,8 +45,10 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3003);
-  console.log(`API is running on portt ${process.env.PORT ?? 3003}`);
+  const config = getConfig();
+  const port = config.api?.port ?? 3003;
+  await app.listen(port);
+  console.log(`API is running on port ${port}`);
 }
 
 bootstrap();

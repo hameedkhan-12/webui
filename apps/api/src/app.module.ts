@@ -1,5 +1,3 @@
-// apps/api/src/app.module.ts
-
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -16,6 +14,7 @@ import { InngestModule } from './inngest/inngest.module';
 import { AiModule } from './ai/ai.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { CacheModule } from './cache/cache.module';
+import { CodeGenModule } from './code-gen/code-gen.module';
 
 @Module({
   imports: [
@@ -23,8 +22,8 @@ import { CacheModule } from './cache/cache.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    ScheduleModule.forRoot(), // For scheduled tasks (lock cleanup)
-    EventEmitterModule.forRoot(), // For real-time events
+    ScheduleModule.forRoot(), 
+    EventEmitterModule.forRoot(), 
     PrismaModule,
     CacheModule,
     AuthModule,
@@ -33,6 +32,7 @@ import { CacheModule } from './cache/cache.module';
     InngestModule,
     AiModule,
     CanvasModule,
+    CodeGenModule
   ],
   controllers: [AppController],
   providers: [

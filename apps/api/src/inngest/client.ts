@@ -1,6 +1,7 @@
 // apps/api/inngest/client.ts
 
 import { Inngest, EventSchemas } from 'inngest';
+import { getConfig } from '@repo/shared';
 
 type Events = {
   'ai/generation': {
@@ -65,8 +66,10 @@ type Events = {
   };
 };
 
+const config = getConfig();
+
 export const inngest = new Inngest({
   id: 'website-builder',
-  eventKey: process.env.INNGEST_EVENT_KEY,
+  eventKey: config.inngest?.eventKey,
   schemas: new EventSchemas().fromRecord<Events>(),
 });
