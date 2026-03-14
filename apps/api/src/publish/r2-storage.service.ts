@@ -1,4 +1,3 @@
-// apps/api/src/modules/publish/r2-storage.service.ts
 
 import { Injectable, Logger } from '@nestjs/common';
 import {
@@ -8,9 +7,16 @@ import {
   ListObjectsV2Command,
   HeadObjectCommand,
   PutObjectCommandInput,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import * as path from 'path';
 import { BundledFile, getConfig, R2UploadOptions } from '@repo/shared';
+
+export interface R2File {
+  content: Buffer;
+  contentType: string;
+  size: number;
+}
 
 const UPLOAD_CONCURRENCY = 20;
 
@@ -132,6 +138,40 @@ export class R2StorageService {
     }
   }
 
+  /**
+ * Get a single file from R2 by key.
+ * Used in dev mode to serve published sites locally.
+ * Returns null if the file doesn't exist.
+ */
+async getFile(key: string): Promise<R2File | null> {
+  try {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.config.publishing?.r2.bucketName,
+        Key: key,
+      }),
+    );
+
+    // Convert readable stream to Buffer
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks);
+
+    return {
+      content,
+      contentType: response.ContentType ?? 'application/octet-stream',
+      size: content.length,
+    };
+  } catch (error) {
+    // NoSuchKey means file doesn't exist — return null instead of throwing
+    if (error?.name === 'NoSuchKey') {
+      return null;
+    }
+    throw error;
+  }
+}
   // ── Private ─────────────────────────────────────────────────────────────────
 
   private async uploadFile(key: string, file: BundledFile): Promise<void> {

@@ -9,8 +9,9 @@ import { BuildFile, getConfig, PublishResult } from '@repo/shared';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BundlerService } from './bundler.service';
 import { R2StorageService } from './r2-storage.service';
-import { SlugSerice } from './slug.service';
+import { SlugService } from './slug.service';
 import { PublishStatus, PublishTrigger } from '@webra/database';
+import { Response } from 'express';
 
 @Injectable()
 export class PublishService {
@@ -21,7 +22,7 @@ export class PublishService {
     private readonly prisma: PrismaService,
     private readonly bundler: BundlerService,
     private readonly r2: R2StorageService,
-    private readonly slug: SlugSerice,
+    private readonly slug: SlugService,
   ) {}
 
   async publishProject(
@@ -284,6 +285,29 @@ export class PublishService {
     });
   }
 
+  async serveLocalFile(
+  slug: string,
+  filepath: string,
+  res: Response,
+): Promise<void> {
+  const key = `sites/${slug}/${filepath}`;
+  let file = await this.r2.getFile(key);
+
+  if (!file) {
+    // SPA fallback — unknown paths go to index.html
+    // so client-side routing works (React Router etc)
+    file = await this.r2.getFile(`sites/${slug}/index.html`);
+
+    if (!file) {
+      res.status(404).send('Site not found. Make sure the project is published.');
+      return;
+    }
+  }
+
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Length', file.size);
+  res.send(file.content);
+}
   private async updateStatus(
     publishId: string,
     status: PublishStatus,

@@ -1,9 +1,10 @@
+
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class SlugSerice {
-  private readonly logger = new Logger(SlugSerice.name);
+export class SlugService {
+  private readonly logger = new Logger(SlugService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -11,41 +12,26 @@ export class SlugSerice {
     projectId: string,
     projectSlug: string,
   ): Promise<string> {
-    try {
-      const project = await this.prisma.project.findUnique({
-        where: {
-          id: projectId,
-        },
-        select: {
-          publishSlug: true,
-        },
-      });
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { publishSlug: true },
+    });
 
-      if (project?.publishSlug) {
-        return project.publishSlug;
-      }
-
-      const newSlug = await this.generateUniqueSlug(projectSlug);
-
-      await this.prisma.project.update({
-        where: {
-          id: projectId,
-        },
-        data: {
-          publishSlug: newSlug,
-        },
-      });
-
-      this.logger.log(
-        `Assigned publish slug ${newSlug} to project ${projectId}`,
-      );
-
-      return newSlug;
-    } catch (error) {
-      throw new Error(
-        `Failed to get or assign slug for project ${projectId}: ${error.message}`,
-      );
+    if (project?.publishSlug) {
+      return project.publishSlug;
     }
+
+    const newSlug = await this.generateUniqueSlug(projectSlug);
+
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { publishSlug: newSlug },
+    });
+
+    this.logger.log(
+      `Assigned publish slug "${newSlug}" to project ${projectId}`,
+    );
+    return newSlug;
   }
 
   private async generateUniqueSlug(base: string): Promise<string> {
@@ -56,18 +42,14 @@ export class SlugSerice {
       const candidate = `${sanitized}-${suffix}`.slice(0, 63);
 
       const existing = await this.prisma.project.findFirst({
-        where: {
-          publishSlug: candidate,
-        },
+        where: { publishSlug: candidate },
       });
 
-      if (!existing) {
-        return candidate;
-      }
-
-      const { randomUUID } = await import('crypto');
-      return `app-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+      if (!existing) return candidate;
     }
+
+    const { randomUUID } = await import('crypto');
+    return `app-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   }
 
   private sanitize(input: string): string {
