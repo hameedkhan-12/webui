@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -29,18 +28,32 @@ enum CodeGenStatus {
   FAILED
 }
 
+enum PublishStatus {
+  IDLE
+  BUNDLING
+  UPLOADING
+  PUBLISHED
+  FAILED
+}
+
+enum PublishTrigger {
+  MANUAL
+  AUTO
+}
+
 model User {
-  id            String    @id @default(uuid())
-  clerkId       String    @unique
-  email         String    @unique
-  name          String?
-  avatar        String?
-  role          UserRole  @default(USER)
-  
-  ownedProjects Project[]         @relation("ProjectOwner")
-  aiJobs        AIGenerationJob[]
-  canvasChanges CanvasChange[]
-  elementLocks  ElementLock[]
+  id      String   @id @default(uuid())
+  clerkId String   @unique
+  email   String   @unique
+  name    String?
+  avatar  String?
+  role    UserRole @default(USER)
+
+  ownedProjects  Project[]         @relation("ProjectOwner")
+  aiJobs         AIGenerationJob[]
+  canvasChanges  CanvasChange[]
+  elementLocks   ElementLock[]
+  publishRecords PublishRecord[] // ← NEW
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -59,17 +72,58 @@ model Project {
   ownerId String
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-  versions      ProjectVersion[]
-  aiJobs        AIGenerationJob[]
-  canvas        Canvas?
-  generatedCode GeneratedCode[]
-  
-  publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  publishSlug   String?   @unique
+  publishedUrl  String?
+  publishedAt   DateTime?
+  lastPublishId String?
+
+  versions       ProjectVersion[]
+  aiJobs         AIGenerationJob[]
+  canvas         Canvas?
+  generatedCode  GeneratedCode[]
+  publishRecords PublishRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([ownerId])
   @@index([slug])
+  @@index([publishSlug])
+}
+
+model PublishRecord {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  publishedBy String
+  user        User   @relation(fields: [publishedBy], references: [id])
+
+  projectSlug String
+  url         String
+  version     Int
+
+  framework String
+  trigger   PublishTrigger @default(MANUAL)
+  status    PublishStatus  @default(IDLE)
+
+  buildTime Int?
+  totalSize BigInt?
+  fileCount Int?
+
+  errorMessage String?
+
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@index([projectId, status])
+  @@index([publishedBy])
+  @@index([projectSlug])
+  @@index([createdAt])
 }
 
 model ProjectVersion {
@@ -77,10 +131,9 @@ model ProjectVersion {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  version  Int
-  snapshot Json
-  message  String?
-
+  version   Int
+  snapshot  Json
+  message   String?
   createdBy String
   createdAt DateTime @default(now())
 
@@ -94,15 +147,12 @@ model Canvas {
   projectId String  @unique
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  elements  CanvasElement[]
-  
-  styles      Json @default("{}")
-  breakpoints Json @default("{\"mobile\":640,\"tablet\":768,\"desktop\":1024}")
-  
-  version     Int  @default(1)
-  
+  elements    CanvasElement[]
+  styles      Json            @default("{}")
+  breakpoints Json            @default("{\"mobile\":640,\"tablet\":768,\"desktop\":1024}")
+  version     Int             @default(1)
   changes     CanvasChange[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -114,25 +164,22 @@ model CanvasElement {
   canvasId String
   canvas   Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
 
-  type     String
-  name     String
-  props    Json   @default("{}")
-  styles   Json   @default("{}")
-  
-  parentId String?
-  order    Int     @default(0)
-  
-  locked   Boolean @default(false)
-  hidden   Boolean @default(false)
-  
-  responsiveStyles Json @default("{}")
-  
+  type             String
+  name             String
+  props            Json    @default("{}")
+  styles           Json    @default("{}")
+  parentId         String?
+  order            Int     @default(0)
+  locked           Boolean @default(false)
+  hidden           Boolean @default(false)
+  responsiveStyles Json    @default("{}")
+
   createdBy String
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  locks     ElementLock[]
+
+  locks ElementLock[]
 
   @@index([canvasId])
   @@index([parentId])
@@ -141,19 +188,17 @@ model CanvasElement {
 }
 
 model CanvasChange {
-  id        String   @id @default(uuid())
-  canvasId  String
-  canvas    Canvas   @relation(fields: [canvasId], references: [id], onDelete: Cascade)
-  
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  
+  id       String @id @default(uuid())
+  canvasId String
+  canvas   Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   operation String
   elementId String?
-  
   before    Json?
   after     Json?
-  
   sessionId String
   timestamp DateTime @default(now())
 
@@ -163,14 +208,13 @@ model CanvasChange {
 }
 
 model ElementLock {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   elementId String
   element   CanvasElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-  
+
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userName  String
-  
   lockedAt  DateTime @default(now())
   expiresAt DateTime
 
@@ -181,22 +225,20 @@ model ElementLock {
 }
 
 model AIGenerationJob {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  prompt    String
-  context   Json     @default("{}")
-  
-  jobType   String
-
-  status    JobStatus @default(PENDING)
-  result    Json?
-  error     String?
+  prompt  String
+  context Json      @default("{}")
+  jobType String
+  status  JobStatus @default(PENDING)
+  result  Json?
+  error   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -209,15 +251,14 @@ model AIGenerationJob {
 }
 
 model GeneratedCode {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  framework String
-  status    CodeGenStatus @default(PENDING)
-  
-  files        Json  @default("[]")
-  dependencies Json  @default("{}")
+  framework    String
+  status       CodeGenStatus @default(PENDING)
+  files        Json          @default("[]")
+  dependencies Json          @default("{}")
   error        String?
 
   createdAt DateTime @default(now())
