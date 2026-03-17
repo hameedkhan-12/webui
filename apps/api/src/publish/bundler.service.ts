@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as esbuild from 'esbuild';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as os from 'os';
 import * as mime from 'mime-types';
 import {
@@ -56,6 +57,45 @@ export class BundlerService {
       const outDir = path.join(tmpDir, 'dist');
       await fs.mkdir(outDir, { recursive: true });
 
+      // List of packages to treat as external (load from CDN in browser)
+      const externalPackages = [
+        'react',
+        'react-dom',
+        'lucide-react',
+        'class-variance-authority',
+        'classnames',
+        'clsx',
+      ];
+
+      // Plugin to handle missing CSS and other asset files
+      const handleMissingAssetsPlugin: esbuild.Plugin = {
+        name: 'handle-missing-assets',
+        setup: (build) => {
+          build.onResolve({ filter: /\.(css|less|scss|sass)$/ }, (args) => {
+            // Check if file exists
+            const fullPath = path.join(args.resolveDir, args.path);
+            try {
+              fsSync.accessSync(fullPath);
+              return undefined; // Let esbuild handle it normally
+            } catch {
+              // File doesn't exist - return empty module
+              this.logger.warn(`CSS file not found, stubbing: ${args.path}`);
+              return {
+                path: fullPath,
+                namespace: 'stub',
+              };
+            }
+          });
+
+          build.onLoad({ filter: /.*/, namespace: 'stub' }, () => {
+            return {
+              contents: '/* CSS file not found */',
+              loader: 'css',
+            };
+          });
+        },
+      };
+
       const buildResult = await esbuild.build({
         entryPoints: [entryPoint],
         bundle: true,
@@ -63,6 +103,8 @@ export class BundlerService {
         splitting: true,
         format: 'esm',
         platform: frameworkConfig.platform,
+        plugins: [handleMissingAssetsPlugin],
+        external: externalPackages,
         outdir: outDir,
         entryNames: 'assets/[name]-[hash]',
         chunkNames: 'assets/[name]-[hash]',
@@ -221,14 +263,7 @@ export class BundlerService {
       path.join(tmpDir, 'package.json'),
       JSON.stringify(pkgJson, null, 2),
     );
-
-    if (framework === 'react' || framework === 'vite') {
-      const shimContent = `
-import * as React from 'https://esm.sh/react@18';
-import * as ReactDOM from 'https://esm.sh/react-dom@18';
-export { React, ReactDOM };
-      `.trim();
-    }
+    // External dependencies will be loaded from CDN via importmap in HTML
   }
 
 
@@ -239,6 +274,19 @@ export { React, ReactDOM };
   ): Promise<string> {
     let html = template;
 
+    // Add importmap for external dependencies to load from CDN
+    const importmap = {
+      imports: {
+        react: 'https://esm.sh/react@18',
+        'react-dom': 'https://esm.sh/react-dom@18',
+        'react-dom/client': 'https://esm.sh/react-dom@18/client',
+        'react/jsx-runtime': 'https://esm.sh/react@18/jsx-runtime',
+        'lucide-react': 'https://esm.sh/lucide-react@0.263.1',
+      },
+    };
+    const importmapScript = `<script type="importmap">${JSON.stringify(importmap)}</script>`;
+    html = html.replace('</head>', `${importmapScript}</head>`);
+
     if (metafile) {
       const outputs = Object.entries(metafile.outputs);
       const mainJs = outputs.find(
@@ -247,12 +295,14 @@ export { React, ReactDOM };
       const mainCss = outputs.find(([file]) => file.endsWith('.css'));
 
       if (mainJs) {
-        const jsPath = path.relative(outDir, path.resolve(mainJs[0]));
-        html = html.replace(/assets\/index\.js/g, jsPath);
+        // metafile paths are already relative to outDir, just normalize slashes for web
+        const jsPath = mainJs[0].replace(/\\/g, '/');
+        html = html.replace(/assets\/index\.js/g, `./${jsPath}`);
       }
       if (mainCss) {
-        const cssPath = path.relative(outDir, path.resolve(mainCss[0]));
-        html = html.replace(/assets\/index\.css/g, cssPath);
+        // metafile paths are already relative to outDir, just normalize slashes for web
+        const cssPath = mainCss[0].replace(/\\/g, '/');
+        html = html.replace(/assets\/index\.css/g, `./${cssPath}`);
       }
     }
 

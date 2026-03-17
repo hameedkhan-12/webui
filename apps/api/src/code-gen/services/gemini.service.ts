@@ -24,7 +24,7 @@ export class GeminiService {
       this.genAI = new GoogleGenerativeAI(apiKey);
       // Using latest Gemini 2.0 Flash Experimental
       this.model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-3-flash-preview',
         generationConfig: {
           temperature: 0.7,
           topP: 0.95,
@@ -43,9 +43,11 @@ export class GeminiService {
       const prompt = this.buildComponentPrompt(context);
 
       const result = await this.model.generateContent(prompt);
+      console.log(result);
       const response = result.response;
+      console.log(response);
       const code = response.text();
-
+      console.log(code);
       // Clean up the response
       return this.cleanCodeResponse(code);
     } catch (error) {

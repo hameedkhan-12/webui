@@ -15,6 +15,7 @@ import { AiModule } from './ai/ai.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { CacheModule } from './cache/cache.module';
 import { CodeGenModule } from './code-gen/code-gen.module';
+import { PublishModule } from './publish/publish.module';
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { CodeGenModule } from './code-gen/code-gen.module';
     InngestModule,
     AiModule,
     CanvasModule,
-    CodeGenModule
+    CodeGenModule,
+    PublishModule
   ],
   controllers: [AppController],
   providers: [

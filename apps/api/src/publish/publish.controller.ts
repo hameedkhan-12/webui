@@ -11,6 +11,7 @@ import {
   Query,
   Res,
   UseGuards,
+  Version,
 } from '@nestjs/common';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { PublishService } from './publish.service';
@@ -24,6 +25,7 @@ import type { Response } from 'express';
 export class PublishController {
   constructor(private readonly publishService: PublishService) {}
 
+  @Version('1')
   @Post()
   @HttpCode(HttpStatus.OK)
   @Throttle({
@@ -43,6 +45,7 @@ export class PublishController {
     );
   }
 
+  @Version('1')
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
   async unpublish(
@@ -52,6 +55,7 @@ export class PublishController {
     await this.publishService.unpublishProject(projectId, user.id);
   }
 
+  @Version('1')
   @Get('status')
   async getStatus(
     @CurrentUser() user: { id: string },
@@ -60,6 +64,7 @@ export class PublishController {
     return this.publishService.getPublishStatus(projectId, user.id);
   }
 
+  @Version('1')
   @Get('history')
   async getHistory(
     @CurrentUser() user: { id: string },
@@ -69,7 +74,8 @@ export class PublishController {
     return this.publishService.getPublishHistory(projectId, user.id, limit);
   }
 
-  @Get('preview/:slug/:filepath(*)')
+  @Version('1')
+  @Get('preview/:slug/*filepath')
   async previewSite(
     @Param('slug') slug: string,
     @Param('filepath') filepath: string,

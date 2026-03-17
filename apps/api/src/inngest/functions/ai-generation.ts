@@ -1,8 +1,13 @@
 // apps/api/inngest/functions/ai-generation.ts
 
 import { inngest } from '../client';
-import { prisma, JobStatus } from '@webra/database';
+import { PrismaClient } from '@webra/database';
 
+// Create a prisma instance for use in Inngest functions
+const prisma = new PrismaClient();
+
+// Proper enum import from Prisma client
+type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export const aiGenerationFunction = inngest.createFunction(
   {
     id: 'ai-generation',
@@ -16,13 +21,31 @@ export const aiGenerationFunction = inngest.createFunction(
   },
   { event: 'ai/generation' },
   async ({ event, step }) => {
+    console.log('Raw event object:', JSON.stringify(event));
+    console.log('Event data:', JSON.stringify(event.data));
+    
     const { jobId, userId, projectId, prompt, context } = event.data;
-    console.log('Received AI generation event:', event.data);
+    console.log('Extracted values - jobId:', jobId, 'userId:', userId, 'projectId:', projectId, 'prompt:', prompt);
+
+    // Validate required fields
+    if (!prompt) {
+      throw new Error(
+        `Missing required field 'prompt' in AI generation event.`,
+      );
+    }
+
+    // Skip DB operations if jobId or userId are missing (for dev/testing)
+    if (!jobId || !userId) {
+      console.warn('Skipping DB persistence - missing jobId or userId');
+      throw new Error(
+        `Missing required fields. jobId: ${jobId}, userId: ${userId}. Cannot proceed without proper job context.`,
+      );
+    }
 
     await step.run('update-status-processing', async () => {
       return prisma.aIGenerationJob.update({
         where: { id: jobId },
-        data: { status: JobStatus.PROCESSING },
+        data: { status: 'PROCESSING' as JobStatus },
       });
     });
 
@@ -58,7 +81,7 @@ export const aiGenerationFunction = inngest.createFunction(
       return prisma.aIGenerationJob.update({
         where: { id: jobId },
         data: {
-          status: JobStatus.COMPLETED,
+          status: 'COMPLETED' as JobStatus,
           result: parsedResult as any,
         },
       });
