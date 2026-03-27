@@ -8,3 +8,5 @@ export * from './config/publish.config';
 // Export types
 export type {} from './types/environment';
 export * from './types/publish.types';
+
+export * from './types/cms.types'

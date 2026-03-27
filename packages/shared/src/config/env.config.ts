@@ -37,6 +37,11 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .optional()
     .default("development"),
+
+  //Cloudinary
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
 });
 
 export type Environment = z.infer<typeof envSchema>;
@@ -77,6 +82,11 @@ export interface AppConfig {
     host: Environment["REDIS_HOST"];
     port: Environment["REDIS_PORT"];
     password?: Environment["REDIS_PASSWORD"];
+  };
+  cloudinary?: {
+    cloudName: Environment["CLOUDINARY_CLOUD_NAME"];
+    apiKey: Environment["CLOUDINARY_API_KEY"];
+    apiSecret: Environment["CLOUDINARY_API_SECRET"];
   };
 }
 
@@ -149,6 +159,14 @@ export function loadConfig(): AppConfig {
         host: env.REDIS_HOST,
         port: env.REDIS_PORT,
         password: env.REDIS_PASSWORD,
+      };
+    }
+    
+    if (env.CLOUDINARY_CLOUD_NAME) {
+      config.cloudinary = {
+        cloudName: env.CLOUDINARY_CLOUD_NAME,
+        apiKey: env.CLOUDINARY_API_KEY,
+        apiSecret: env.CLOUDINARY_API_SECRET,
       };
     }
 

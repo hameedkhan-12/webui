@@ -41,6 +41,30 @@ enum PublishTrigger {
   AUTO
 }
 
+enum FieldType {
+  TEXT
+  RICH_TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  MEDIA
+  SELECT
+  RELATION
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+  OTHER
+}
+
+enum EntryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model User {
   id      String   @id @default(uuid())
   clerkId String   @unique
@@ -83,8 +107,11 @@ model Project {
   generatedCode  GeneratedCode[]
   publishRecords PublishRecord[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  cmsCollections CmsCollection[]
+  cmsEntries     CmsEntry[]
+  cmsMedias      CmsMedia[]
 
   @@index([ownerId])
   @@index([slug])
@@ -266,5 +293,72 @@ model GeneratedCode {
 
   @@index([projectId])
   @@index([status])
+  @@index([createdAt])
+}
+
+model CmsCollection {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  slug        String
+  description String?
+  fields      Json    @default("[]")
+
+  entries CmsEntry[]
+
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+model CmsEntry {
+  id           String        @id @default(uuid())
+  collectionId String
+  Collection   CmsCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  data        Json        @default("{}")
+  status      EntryStatus @default(DRAFT)
+  publishedAt DateTime?
+
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collectionId])
+  @@index([projectId])
+  @@index([status])
+  @@index([collectionId, status])
+}
+
+model CmsMedia {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  url       String
+  secureUrl String
+  publicId  String
+  type      MediaType
+  mimeType  String
+  size      Int
+  width     Int?
+  height    Int?
+  duration  Float?
+  folder    String    @default("cms")
+
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  @@index([projectId])
+  @@index([projectId, type])
   @@index([createdAt])
 }
