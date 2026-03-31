@@ -10,3 +10,5 @@ export type {} from './types/environment';
 export * from './types/publish.types';
 
 export * from './types/cms.types'
+
+export * from './types/storage.types'

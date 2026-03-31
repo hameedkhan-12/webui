@@ -8,7 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import {
   Collection,
   CreateCollectionDto,
-  PaginatedResponse,
+  Paginated as PaginatedResponse,
   UpdateCollectionDto,
 } from '@repo/shared';
 @Injectable()

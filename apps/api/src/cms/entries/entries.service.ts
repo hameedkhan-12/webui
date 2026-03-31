@@ -8,7 +8,7 @@ import {
   CreateEntryDto,
   Entry,
   FieldType,
-  PaginatedResponse,
+  Paginated as PaginatedResponse,
   PaginationQuery,
   UpdateEntryDto,
 } from '@repo/shared';
@@ -217,7 +217,6 @@ export class EntriesService {
       data: entry.data,
       status: entry.status,
       publishedAt: entry.publishedAt,
-      createdBy: entry.createdBy,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     };

@@ -16,6 +16,9 @@ import { CanvasModule } from './canvas/canvas.module';
 import { CacheModule } from './cache/cache.module';
 import { CodeGenModule } from './code-gen/code-gen.module';
 import { PublishModule } from './publish/publish.module';
+import { StorageModule } from './storage/storage.module';
+import { AssetsModule } from './assets/assets.module';
+import { CmsModule } from './cms/cms.module';
 
 @Module({
   imports: [
@@ -23,8 +26,8 @@ import { PublishModule } from './publish/publish.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    ScheduleModule.forRoot(), 
-    EventEmitterModule.forRoot(), 
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     PrismaModule,
     CacheModule,
     AuthModule,
@@ -34,7 +37,10 @@ import { PublishModule } from './publish/publish.module';
     AiModule,
     CanvasModule,
     CodeGenModule,
-    PublishModule
+    PublishModule,
+    StorageModule,
+    AssetsModule,
+    CmsModule,
   ],
   controllers: [AppController],
   providers: [

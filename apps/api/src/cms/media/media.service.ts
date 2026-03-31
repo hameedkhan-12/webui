@@ -1,126 +1,101 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { CloudinaryService } from './cloudinary.service';
-import { MediaAsset, MediaType } from '@repo/shared';
-import * as path from 'path';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { CloudinaryService } from '../../storage/cloudinary.service';
+import { MediaAsset, MediaType, Paginated, MediaQuery } from '@repo/shared';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  // Images
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  // Videos
-  'video/mp4',
-  'video/webm',
-  'video/ogg',
-  // Documents
-  'application/pdf',
-  'text/plain',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-]);
 @Injectable()
 export class MediaService {
-  private readonly logger = new Logger(MediaService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
   ) {}
 
-  async findAll(projectId: string, type?: MediaType): Promise<MediaAsset[]> {
-    const media = await this.prisma.cmsMedia.findMany({
-      where: {
-        projectId,
-        ...(type ? { type } : {}),
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+  async findAll(
+    projectId: string,
+    query: MediaQuery,
+  ): Promise<Paginated<MediaAsset>> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, query.limit ?? 20);
+    const skip = (page - 1) * limit;
 
-    return media.map(this.toMediaAsset);
+    const where = {
+      projectId,
+      ...(query.mediaType && { mediaType: query.mediaType }),
+      ...(query.search && {
+        name: { contains: query.search, mode: 'insensitive' as const },
+      }),
+    };
+
+    const [assets, total] = await Promise.all([
+      this.prisma.cmsMedia.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.cmsMedia.count({ where }),
+    ]);
+
+    return {
+      data: assets.map(this.toMediaAsset),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  async uploadMedia(
+  async upload(
     projectId: string,
+    userId: string,
     file: Express.Multer.File,
   ): Promise<MediaAsset> {
-    if (file.size > MAX_FILE_SIZE) {
-      throw new BadRequestException(
-        `File size exceeds ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-      );
-    }
+    const folder = `projects/${projectId}/cms-media`;
 
-    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-      throw new BadRequestException(`File type not allowed: ${file.mimetype}`);
-    }
+    const result = await this.cloudinary.upload(file, { folder });
 
-    const originalName = file.originalname;
-    const nameWithoutExt = path
-      .basename(originalName, path.extname(originalName))
-      .replace(/[^a-zA-Z0-9]/g, '-')
-      .toLowerCase();
+    const mediaType = this.resolveMediaType(file.mimetype);
 
-    const folder = `projects/${projectId}/media`;
-    const resourceType = this.cloudinary.getResourceType(file.mimetype);
-    const mediaType = this.cloudinary.getMediaType(file.mimetype);
-
-    this.logger.log(
-      `Uploading ${file.originalname} (${file.size}) to ${folder}`,
-    );
-    const result = await this.cloudinary.upload(file.buffer, {
-      folder,
-      filename: nameWithoutExt,
-      resourceType,
-    });
-
-    const media = await this.prisma.cmsMedia.create({
+    const asset = await this.prisma.cmsMedia.create({
       data: {
         projectId,
-        name: nameWithoutExt,
-        uploadedBy: originalName,
+        name: file.originalname,
         url: result.url,
         secureUrl: result.secureUrl,
         publicId: result.publicId,
-        type: mediaType,
         mimeType: file.mimetype,
-        size: file.size,
-        width: result.width ?? null,
-        height: result.height ?? null,
+        size: result.size,
+        width: result.width,
+        height: result.height,
+        duration: result.duration,
         folder,
+        uploadedBy: userId,
+        type: mediaType,
       },
     });
-    this.logger.log(`Uploaded: ${result.publicId}`);
-    return this.toMediaAsset(media);
+
+    return this.toMediaAsset(asset);
   }
 
-  async removeMedia(projectId: string, mediaId: string): Promise<void> {
-    const media = await this.prisma.cmsMedia.findFirst({
-      where: {
-        id: mediaId,
-        projectId,
-      },
+  async remove(projectId: string, id: string): Promise<void> {
+    const asset = await this.prisma.cmsMedia.findFirst({
+      where: { id, projectId },
     });
 
-    if (!media) {
-      throw new BadRequestException('Media not found');
-    }
+    if (!asset) throw new NotFoundException('Media asset not found');
 
-    const resourceType = this.cloudinary.getResourceType(media.mimeType);
-
-    await this.cloudinary.delete(media.publicId, resourceType);
-    await this.prisma.cmsMedia.delete({
-      where: {
-        id: mediaId,
-      },
-    });
-
-    this.logger.log(`Deleted: ${media.publicId}`);
+    await this.cloudinary.delete(asset.publicId, asset.mimeType);
+    await this.prisma.cmsMedia.delete({ where: { id } });
   }
+
+  // ── //////////////////////////// Helpers //////////////////////////////
+
+  private resolveMediaType(mimeType: string): MediaType {
+    if (mimeType.startsWith('image/')) return MediaType.IMAGE;
+    if (mimeType.startsWith('video/')) return MediaType.VIDEO;
+    return MediaType.DOCUMENT;
+  }
+
   private toMediaAsset(raw: any): MediaAsset {
     return {
       id: raw.id,
@@ -129,11 +104,12 @@ export class MediaService {
       url: raw.url,
       secureUrl: raw.secureUrl,
       publicId: raw.publicId,
-      type: raw.type as MediaType,
+      mediaType: raw.mediaType as MediaType,
       mimeType: raw.mimeType,
       size: raw.size,
       width: raw.width ?? undefined,
       height: raw.height ?? undefined,
+      duration: raw.duration ?? undefined,
       folder: raw.folder,
       uploadedBy: raw.uploadedBy,
       createdAt: raw.createdAt,

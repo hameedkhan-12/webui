@@ -1,5 +1,3 @@
-// apps/api/src/modules/cms/media/media.controller.ts
-
 import {
   Controller,
   Get,
@@ -12,56 +10,45 @@ import {
   UploadedFile,
   HttpCode,
   HttpStatus,
-  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
 import { MediaService } from './media.service';
+
+import { multerConfig } from '../../storage/multer.config';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { ProjectGuard } from 'src/guards/project.guard';
-import { MediaType } from '@repo/shared';
+import { CurrentUser } from 'src/decorators/current-user.decorator';
+import { type MediaQuery } from '@repo/shared';
 
-@Controller('api/v1/cms/:projectId/media')
+@Controller('api/v1/cms/media')
 @UseGuards(ClerkAuthGuard, ProjectGuard)
 export class MediaController {
-  constructor(private readonly mediaService: MediaService) {}
+  constructor(private readonly service: MediaService) {}
 
   @Get()
   findAll(
-    @Param('projectId') projectId: string,
-    @Query('type') type?: MediaType,
+    @CurrentUser() user: { id: string; projectId: string },
+    @Query() query: MediaQuery,
   ) {
-    return this.mediaService.findAll(projectId, type);
+    return this.service.findAll(user.projectId, query);
   }
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      // memoryStorage — never writes to disk, buffer goes straight to Cloudinary
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 50 * 1024 * 1024,
-        files: 1,
-      },
-    }),
-  )
-  async upload(
-    @Param('projectId') projectId: string,
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  upload(
+    @CurrentUser() user: { id: string; projectId: string },
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) {
-      throw new BadRequestException(
-        'No file provided. Use multipart/form-data with field name "file"',
-      );
-    }
-
-    return this.mediaService.uploadMedia(projectId, file);
+    return this.service.upload(user.projectId, user.id, file);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('projectId') projectId: string, @Param('id') id: string) {
-    return this.mediaService.removeMedia(projectId, id);
+  remove(
+    @CurrentUser() user: { id: string; projectId: string },
+    @Param('id') id: string,
+  ) {
+    return this.service.remove(user.projectId, id);
   }
 }
