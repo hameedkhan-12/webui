@@ -69,7 +69,7 @@ enum EntryStatus {
   ARCHIVED
 }
 
-// ← NEW
+////////
 enum AssetType {
   IMAGE
   VIDEO
@@ -78,12 +78,40 @@ enum AssetType {
   OTHER
 }
 
-// ← NEW
+//////
 enum OptimizationStatus {
   PENDING
   PROCESSING
   DONE
   FAILED
+}
+
+///////
+
+enum TemplateCategory {
+  LANDING_PAGE
+  PORTFOLIO
+  BLOG
+  ECOMMERCE
+  DASHBOARD
+  SAAS
+  AGENCY
+  PERSONAL
+  OTHER
+}
+
+enum TemplateFramework {
+  REACT
+  VUE
+  SVELTE
+  NEXT
+}
+
+///////// PROJEct COllaborator
+enum COllaboratorRole {
+  VIEWER
+  EDITOR
+  ADMIN
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -104,8 +132,10 @@ model User {
   elementLocks   ElementLock[]
   publishRecords PublishRecord[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  collaborations ProjectCollaborator[]
+  comments       ProjectComment[]
 
   @@index([email])
   @@index([clerkId])
@@ -138,10 +168,13 @@ model Project {
   cmsCollections CmsCollection[]
   cmsEntries     CmsEntry[]
   cmsMedias      CmsMedia[]
-  assets         Asset[]           // ← NEW
+  assets         Asset[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  templateUsages ProjectTemplate[]
+  collaborators  ProjectCollaborator[]
+  comments       ProjectComment[]
 
   @@index([ownerId])
   @@index([slug])
@@ -153,9 +186,9 @@ model Project {
 // ─────────────────────────────────────────────────────────────────
 
 model PublishRecord {
-  id          String  @id @default(uuid())
-  projectId   String
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   publishedBy String
   user        User   @relation(fields: [publishedBy], references: [id])
@@ -254,7 +287,7 @@ model CanvasChange {
   canvas   Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
 
   userId    String
-  user      User   @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
   operation String
   elementId String?
   before    Json?
@@ -338,9 +371,9 @@ model GeneratedCode {
 // ─────────────────────────────────────────────────────────────────
 
 model CmsCollection {
-  id          String  @id @default(uuid())
-  projectId   String
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   name        String
   slug        String
@@ -349,8 +382,8 @@ model CmsCollection {
 
   entries   CmsEntry[]
   createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -385,7 +418,7 @@ model CmsMedia {
   name      String
   url       String
   secureUrl String
-  publicId  String    @unique   // ← FIXED: was missing @unique
+  publicId  String    @unique // ← FIXED: was missing @unique
   type      MediaType
   mimeType  String
   size      Int
@@ -403,7 +436,7 @@ model CmsMedia {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Assets  ← NEW
+// Assets 
 // Figma-style asset panel — scoped to project, used on the canvas
 // ─────────────────────────────────────────────────────────────────
 
@@ -415,14 +448,14 @@ model Asset {
   name          String
   url           String
   secureUrl     String
-  publicId      String             @unique
+  publicId      String    @unique
   assetType     AssetType
   mimeType      String
-  size          Int                          // bytes — original
-  optimizedSize Int?                         // bytes — after optimization
+  size          Int // bytes — original
+  optimizedSize Int? // bytes — after optimization
   width         Int?
   height        Int?
-  duration      Float?                       // seconds, video only
+  duration      Float? // seconds, video only
 
   optimizationStatus OptimizationStatus @default(PENDING)
   optimizedUrl       String?
@@ -436,5 +469,93 @@ model Asset {
   @@index([projectId])
   @@index([projectId, assetType])
   @@index([projectId, optimizationStatus])
+  @@index([createdAt])
+}
+
+/////////////// TEMPLATE
+
+model Template {
+  id          String            @id @default(uuid())
+  name        String
+  description String
+  category    TemplateCategory
+  framework   TemplateFramework
+  previewUrl  String
+  demoUrl     String
+
+  files        Json @default("[]")
+  dependencies Json @default("{}")
+
+  tags       String[] @default([])
+  isPremium  Boolean  @default(false)
+  usageCount Int      @default(0)
+
+  projectsUsed ProjectTemplate[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([framework])
+  @@index([isPremium])
+  @@index([usageCount])
+  @@index([createdAt])
+}
+
+model ProjectTemplate {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  usedBy String
+  usedAt DateTime @default(now())
+
+  @@unique([projectId, templateId])
+  @@index([projectId])
+  @@index([templateId])
+  @@index([usedAt])
+}
+
+model ProjectCollaborator {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role     COllaboratorRole @default(VIEWER)
+  joinedAt DateTime         @default(now())
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model ProjectComment {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  content   String
+  elementId String?
+  resolved  Boolean @default(false)
+
+  parentId String?
+  parent   ProjectComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  ProjectComment[] @relation("CommentReplies")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, elementId])
+  @@index([parentId])
   @@index([createdAt])
 }

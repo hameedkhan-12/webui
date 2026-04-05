@@ -176,7 +176,7 @@ export class BundlerService {
         buildTime,
         totalSize,
       };
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Bundle failed: ${error.message}`, error.stack);
       return {
         success: false,
@@ -265,7 +265,6 @@ export class BundlerService {
     );
     // External dependencies will be loaded from CDN via importmap in HTML
   }
-
 
   private async generateIndexHtml(
     outDir: string,
@@ -365,7 +364,7 @@ export class BundlerService {
   private async cleanup(tmpDir: string): Promise<void> {
     try {
       await fs.rm(tmpDir, { recursive: true, force: true });
-    } catch (err) {
+    } catch (err: any) {
       this.logger.warn(`Cleanup failed for ${tmpDir}: ${err.message}`);
     }
   }

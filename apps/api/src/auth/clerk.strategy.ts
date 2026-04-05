@@ -38,7 +38,7 @@ export class ClerkStrategy extends PassportStrategy(Strategy, 'clerk') {
 
       // ✅ Return only the database user (cleaner)
       return dbUser;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Auth error:', error);
       
       if (error.reason === 'token-expired') {

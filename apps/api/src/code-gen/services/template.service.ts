@@ -128,7 +128,7 @@ export class TemplateService {
         forceConsistentCasingInFileNames: true,
         isolatedModules: true,
         verbatimModuleSyntax: true, // New in TS 5.0+
-        
+
         // Path aliases
         baseUrl: '.',
         paths: {
@@ -143,7 +143,12 @@ export class TemplateService {
     if (framework === Framework.NEXT) {
       (baseConfig.compilerOptions as any).incremental = true;
       (baseConfig.compilerOptions as any).plugins = [{ name: 'next' }];
-      baseConfig.include = ['next-env.d.ts', '**/*.ts', '**/*.tsx', '.next/types/**/*.ts'];
+      baseConfig.include = [
+        'next-env.d.ts',
+        '**/*.ts',
+        '**/*.tsx',
+        '.next/types/**/*.ts',
+      ];
     }
 
     // Add React 19 types
@@ -192,21 +197,21 @@ export class TemplateService {
   private generateNextConfig(options: any): GeneratedFile {
     const config = {
       reactStrictMode: true,
-      
+
       experimental: {
         turbo: {},
         reactCompiler: true,
         ppr: options.pwa ? true : false,
       },
-      
+
       images: {
         remotePatterns: [],
       },
-      
+
       typescript: {
         ignoreBuildErrors: false,
       },
-      
+
       eslint: {
         ignoreDuringBuilds: false,
       },
@@ -236,7 +241,10 @@ export default nextConfig
   /**
    * Generate Vite 6 configuration
    */
-  private generateViteConfig(framework: Framework, options: any): GeneratedFile {
+  private generateViteConfig(
+    framework: Framework,
+    options: any,
+  ): GeneratedFile {
     let pluginImport = '';
     let plugin = '';
 
@@ -392,14 +400,18 @@ export default defineConfig({
   --font-mono: ui-monospace, monospace;
 }
 
-${options.darkMode ? `
+${
+  options.darkMode
+    ? `
 @media (prefers-color-scheme: dark) {
   :root {
     --color-primary: #60a5fa;
     --color-secondary: #a78bfa;
   }
 }
-` : ''}
+`
+    : ''
+}
 
 /* Custom utilities */
 @utility container-custom {
@@ -440,7 +452,10 @@ ${options.darkMode ? `
   /**
    * Generate ESLint configuration (flat config)
    */
-  private generateESLintConfig(framework: Framework, options: any): GeneratedFile {
+  private generateESLintConfig(
+    framework: Framework,
+    options: any,
+  ): GeneratedFile {
     const content = `import js from '@eslint/js'
 import typescript from '@typescript-eslint/eslint-plugin'
 import typescriptParser from '@typescript-eslint/parser'
@@ -491,7 +506,8 @@ export default [
       printWidth: 100,
       tabWidth: 2,
       useTabs: false,
-      plugins: options.styling === 'tailwind' ? ['prettier-plugin-tailwindcss'] : [],
+      plugins:
+        options.styling === 'tailwind' ? ['prettier-plugin-tailwindcss'] : [],
     };
 
     return {
@@ -621,17 +637,21 @@ ${this.getBuildCommand(options.packageManager)}
 ## 🏗️ Project Structure
 
 \`\`\`
-${framework === Framework.NEXT ? `
+${
+  framework === Framework.NEXT
+    ? `
 ├── app/                 # Next.js 16 App Router
 │   ├── layout.tsx      # Root layout
 │   ├── page.tsx        # Home page
 │   └── globals.css     # Global styles
-` : `
+`
+    : `
 ├── src/
 │   ├── components/     # React components
 │   ├── App.tsx        # Main app
 │   └── main.tsx       # Entry point
-`}
+`
+}
 ├── public/             # Static assets
 ├── package.json
 ${options.typescript ? '├── tsconfig.json' : ''}
@@ -780,7 +800,8 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
     // UI Library
     if (options.componentLibrary === 'shadcn') {
       deps['@radix-ui/react-icons'] = LATEST_VERSIONS['@radix-ui/react-icons'];
-      deps['class-variance-authority'] = LATEST_VERSIONS['class-variance-authority'];
+      deps['class-variance-authority'] =
+        LATEST_VERSIONS['class-variance-authority'];
       deps['clsx'] = LATEST_VERSIONS.clsx;
       deps['tailwind-merge'] = LATEST_VERSIONS['tailwind-merge'];
     }
@@ -814,7 +835,7 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
     // Build tools
     if (framework !== Framework.NEXT && framework !== Framework.NUXT) {
       devDeps['vite'] = LATEST_VERSIONS.vite;
-      
+
       if (framework === Framework.REACT) {
         devDeps['@vitejs/plugin-react-swc'] = '^3.7.1';
       } else if (framework === Framework.VUE) {
@@ -829,15 +850,19 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
 
     if (options.includeTests) {
       devDeps['vitest'] = LATEST_VERSIONS.vitest;
-      devDeps['@testing-library/react'] = LATEST_VERSIONS['@testing-library/react'];
-      devDeps['@testing-library/jest-dom'] = LATEST_VERSIONS['@testing-library/jest-dom'];
+      devDeps['@testing-library/react'] =
+        LATEST_VERSIONS['@testing-library/react'];
+      devDeps['@testing-library/jest-dom'] =
+        LATEST_VERSIONS['@testing-library/jest-dom'];
     }
 
     if (options.includeESLint) {
       devDeps['eslint'] = LATEST_VERSIONS.eslint;
-      devDeps['@typescript-eslint/parser'] = LATEST_VERSIONS['@typescript-eslint/parser'];
-      devDeps['@typescript-eslint/eslint-plugin'] = LATEST_VERSIONS['@typescript-eslint/eslint-plugin'];
-      
+      devDeps['@typescript-eslint/parser'] =
+        LATEST_VERSIONS['@typescript-eslint/parser'];
+      devDeps['@typescript-eslint/eslint-plugin'] =
+        LATEST_VERSIONS['@typescript-eslint/eslint-plugin'];
+
       if (framework === Framework.NEXT) {
         devDeps['eslint-config-next'] = LATEST_VERSIONS['eslint-config-next'];
       }
@@ -846,7 +871,8 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
     if (options.includePrettier) {
       devDeps['prettier'] = LATEST_VERSIONS.prettier;
       if (options.styling === 'tailwind') {
-        devDeps['prettier-plugin-tailwindcss'] = LATEST_VERSIONS['prettier-plugin-tailwindcss'];
+        devDeps['prettier-plugin-tailwindcss'] =
+          LATEST_VERSIONS['prettier-plugin-tailwindcss'];
       }
     }
 
@@ -917,23 +943,35 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
 
   private getFrameworkVersion(framework: Framework): string {
     switch (framework) {
-      case Framework.REACT: return '19.0';
-      case Framework.NEXT: return '16.0';
-      case Framework.VUE: return '3.5';
-      case Framework.NUXT: return '4.0';
-      case Framework.SVELTE: return '5.0';
-      case Framework.REMIX: return '2.15';
-      case Framework.ASTRO: return '5.0';
-      default: return '';
+      case Framework.REACT:
+        return '19.0';
+      case Framework.NEXT:
+        return '16.0';
+      case Framework.VUE:
+        return '3.5';
+      case Framework.NUXT:
+        return '4.0';
+      case Framework.SVELTE:
+        return '5.0';
+      case Framework.REMIX:
+        return '2.15';
+      case Framework.ASTRO:
+        return '5.0';
+      default:
+        return '';
     }
   }
 
   private getPackageManagerVersion(pm?: string): string {
     switch (pm) {
-      case 'pnpm': return '9.15+';
-      case 'yarn': return '4.6+';
-      case 'bun': return '1.1+';
-      default: return '10.0+'; // npm
+      case 'pnpm':
+        return '9.15+';
+      case 'yarn':
+        return '4.6+';
+      case 'bun':
+        return '1.1+';
+      default:
+        return '10.0+'; // npm
     }
   }
 
@@ -945,28 +983,40 @@ NEXT_PUBLIC_SITE_DESCRIPTION=
 
   private getInstallCommand(pm?: string): string {
     switch (pm) {
-      case 'yarn': return 'yarn install';
-      case 'bun': return 'bun install';
-      case 'npm': return 'npm install';
-      default: return 'pnpm install';
+      case 'yarn':
+        return 'yarn install';
+      case 'bun':
+        return 'bun install';
+      case 'npm':
+        return 'npm install';
+      default:
+        return 'pnpm install';
     }
   }
 
   private getDevCommand(pm?: string): string {
     switch (pm) {
-      case 'yarn': return 'yarn dev';
-      case 'bun': return 'bun dev';
-      case 'npm': return 'npm run dev';
-      default: return 'pnpm dev';
+      case 'yarn':
+        return 'yarn dev';
+      case 'bun':
+        return 'bun dev';
+      case 'npm':
+        return 'npm run dev';
+      default:
+        return 'pnpm dev';
     }
   }
 
   private getBuildCommand(pm?: string): string {
     switch (pm) {
-      case 'yarn': return 'yarn build';
-      case 'bun': return 'bun run build';
-      case 'npm': return 'npm run build';
-      default: return 'pnpm build';
+      case 'yarn':
+        return 'yarn build';
+      case 'bun':
+        return 'bun run build';
+      case 'npm':
+        return 'npm run build';
+      default:
+        return 'pnpm build';
     }
   }
 }

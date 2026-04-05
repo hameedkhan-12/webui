@@ -19,6 +19,8 @@ import { PublishModule } from './publish/publish.module';
 import { StorageModule } from './storage/storage.module';
 import { AssetsModule } from './assets/assets.module';
 import { CmsModule } from './cms/cms.module';
+import { TemplatesModule } from './templates/templates.module';
+import { CollaborationModule } from './collaborators/collaborators.module';
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { CmsModule } from './cms/cms.module';
     StorageModule,
     AssetsModule,
     CmsModule,
+    TemplatesModule,
+    CollaborationModule,
   ],
   controllers: [AppController],
   providers: [

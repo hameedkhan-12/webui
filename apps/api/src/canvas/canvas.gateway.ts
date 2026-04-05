@@ -31,7 +31,7 @@ interface CollaboratorCursor {
 })
 export class CanvasGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(CanvasGateway.name);
   private projectRooms = new Map<string, Set<string>>();
