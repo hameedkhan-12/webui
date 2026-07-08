@@ -36,17 +36,18 @@ import {
 } from "../lib/webcontainer";
 import { workspaceBridgeOnTransaction } from '@aura/component-registry';
 import {
-  getCachedInstallState,
-  cacheInstallState,
-  clearInstallCache,
-  hasPackageJsonChanged,
-} from "../lib/persistentCache";
-import {
   saveSnapshot,
   loadSnapshot,
   deleteProjectSnapshots,
 } from "../lib/nodeModulesCache";
 import { usePersistentWorkspace } from "./usePersistentWorkspace";
+
+// NOTE: `persistentCache.ts` (localStorage install-flag tracking) has been
+// removed from this file's imports. It was dead code — only cacheInstallState
+// was called and nothing gated on it — left over from before the IndexedDB
+// snapshot approach. `nodeModulesCache.ts`, keyed on the package.json hash,
+// is the single source of truth for "do we need npm install". Delete
+// lib/persistentCache.ts from the repo; nothing references it anymore.
 
 export function useWorkspace() {
   const { getToken } = useAuth();
@@ -198,7 +199,10 @@ export function useWorkspace() {
   };
 
   const runInstallAndDev = async (wc: WebContainer) => {
-    if (devServerStartedRef.current) return;
+    // Guard against concurrent installs — e.g. the boot effect's install still
+    // running while handleStartDevServer fires from a user action.
+    if (devServerStartedRef.current || isInstallingRef.current) return;
+    isInstallingRef.current = true;
 
     try {
       registerServerReadyHandler(wc);
@@ -211,8 +215,15 @@ export function useWorkspace() {
       // WebContainer always boots with an empty filesystem, so we can never rely
       // on readdir("node_modules"). Instead we persist a binary snapshot of
       // node_modules to IndexedDB after each successful install, keyed by the
-      // package.json hash. On reload we mount it directly — this takes ~2-5 s
-      // instead of 60-90 s for a full npm install.
+      // package.json hash. On reload we mount it directly — this takes a few
+      // seconds instead of a full npm install.
+      //
+      // IMPORTANT: the snapshot is exported scoped to "node_modules", so the
+      // blob's root IS the contents of node_modules (react/, next/, etc. sit
+      // at the top level of the blob, not nested under a node_modules/
+      // folder). It must be mounted at mountPoint: "node_modules" — mounting
+      // at "/" dumps packages into the project root instead, breaking module
+      // resolution while still reporting a "successful" cache restore.
       let restoredFromCache = false;
       try {
         appendTerminalOutput("🔍 Checking node_modules snapshot cache...", "info");
@@ -224,7 +235,11 @@ export function useWorkspace() {
             "info",
           );
           const t0 = Date.now();
-          await wc.mount(snapshot, { mountPoint: "/" });
+
+          // mount() throws if the target directory doesn't exist yet
+          await wc.fs.mkdir("node_modules", { recursive: true });
+          await wc.mount(snapshot, { mountPoint: "node_modules" });
+
           const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
           appendTerminalOutput(
             `✅ node_modules restored in ${elapsed}s — skipping npm install.`,
@@ -267,17 +282,31 @@ export function useWorkspace() {
         }
 
         appendTerminalOutput("✅ Dependencies installed.", "success");
-        cacheInstallState(currentHash, true, projectId);
 
         // ── Step 3: Export node_modules and persist to IndexedDB ─────────────
         appendTerminalOutput("💾 Saving node_modules snapshot to cache…", "info");
         try {
-          const snapshot = await (wc as any).export("node_modules", { format: "binary" }) as Uint8Array;
-          await saveSnapshot(projectId, currentHash, snapshot);
-          appendTerminalOutput(
-            `✅ Snapshot saved (${(snapshot.byteLength / 1024 / 1024).toFixed(1)} MB) — future reloads will be instant.`,
-            "success",
-          );
+          // Requires @webcontainer/api >= 1.4.0 for export(). Confirmed
+          // present at ^1.5.1 in this project's package.json.
+          const snapshot = await wc.export("node_modules", { format: "binary" });
+          const result = await saveSnapshot(projectId, currentHash, snapshot);
+
+          if (result.status === "saved") {
+            appendTerminalOutput(
+              `✅ Snapshot saved (${(result.sizeBytes / 1024 / 1024).toFixed(1)} MB) — future reloads will be instant.`,
+              "success",
+            );
+          } else if (result.status === "too_large") {
+            // Surfaced here instead of only console.warn — this is exactly
+            // the case that was silently forcing a full install on every
+            // reload before the cap was raised.
+            appendTerminalOutput(
+              `⚠️ node_modules snapshot (${(result.sizeBytes / 1024 / 1024).toFixed(1)} MB) exceeds the ${(result.maxBytes / 1024 / 1024).toFixed(0)} MB cache limit — will reinstall next reload.`,
+              "warning",
+            );
+          } else {
+            appendTerminalOutput(`⚠️ Could not save snapshot.`, "warning");
+          }
         } catch (exportErr: any) {
           // Non-fatal — app still works, just won't skip install next time.
           appendTerminalOutput(
@@ -302,6 +331,8 @@ export function useWorkspace() {
       appendTerminalOutput(`❌ Execution failed: ${err.message}`, "error");
       setWebcontainerStatus("error");
       simulateTerminalBuildAndStart(filesRef.current);
+    } finally {
+      isInstallingRef.current = false;
     }
   };
 
@@ -394,18 +425,24 @@ export function useWorkspace() {
           if (code === 0) {
             const newHash = computePackageJsonHash(pkg);
             packageJsonHashRef.current = newHash;
-            cacheInstallState(newHash, true, projectId);
 
             // Re-export updated node_modules snapshot
             appendTerminalOutput("💾 Updating node_modules snapshot cache…", "info");
             try {
               const wc = webcontainerRef.current!;
-              const snapshot = await (wc as any).export("node_modules", { format: "binary" }) as Uint8Array;
-              await saveSnapshot(projectId, newHash, snapshot);
-              appendTerminalOutput(
-                `✅ Snapshot updated (${(snapshot.byteLength / 1024 / 1024).toFixed(1)} MB).`,
-                "success",
-              );
+              const snapshot = await wc.export("node_modules", { format: "binary" });
+              const result = await saveSnapshot(projectId, newHash, snapshot);
+              if (result.status === "saved") {
+                appendTerminalOutput(
+                  `✅ Snapshot updated (${(result.sizeBytes / 1024 / 1024).toFixed(1)} MB).`,
+                  "success",
+                );
+              } else if (result.status === "too_large") {
+                appendTerminalOutput(
+                  `⚠️ Snapshot (${(result.sizeBytes / 1024 / 1024).toFixed(1)} MB) exceeds cache limit — will reinstall next reload.`,
+                  "warning",
+                );
+              }
             } catch (exportErr: any) {
               appendTerminalOutput(
                 `⚠️ Snapshot export failed: ${exportErr?.message ?? exportErr}`,
@@ -491,10 +528,10 @@ export function useWorkspace() {
       }
 
       // Reset in-memory install tracking when switching projects.
-      // NOTE: We do NOT clear the localStorage hash or IndexedDB snapshot here —
-      // they are keyed by hash so stale data is naturally evicted when the
-      // package.json changes. Clearing them on every load was the root cause of
-      // npm install running on every browser reload.
+      // NOTE: We do NOT clear the IndexedDB snapshot here — it's keyed by
+      // hash so stale data is naturally evicted when package.json changes.
+      // Clearing it on every load was the root cause of npm install running
+      // on every browser reload.
       packageJsonHashRef.current = "";
       devServerStartedRef.current = false;
       serverReadyRegisteredRef.current = false;
@@ -759,10 +796,10 @@ export function useWorkspace() {
         setSelectedElement((prev) =>
           prev
             ? {
-                ...prev,
-                text: updatedProps.text ?? prev.text,
-                classes: updatedProps.classes ?? prev.classes,
-              }
+              ...prev,
+              text: updatedProps.text ?? prev.text,
+              classes: updatedProps.classes ?? prev.classes,
+            }
             : null,
         );
       }
