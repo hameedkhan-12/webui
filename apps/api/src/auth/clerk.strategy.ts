@@ -1,5 +1,5 @@
 // apps/backend/src/auth/clerk.strategy.ts
-import { User, verifyToken } from '@clerk/backend';
+import { verifyToken } from '@clerk/backend';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -20,32 +20,66 @@ export class ClerkStrategy extends PassportStrategy(Strategy, 'clerk') {
   }
 
   async validate(req: Request): Promise<any> {
-    const token = req.headers.authorization?.split(' ').pop();
+    const authHeader = req.headers.authorization;
 
-    if (!token) {
-      throw new UnauthorizedException('No token provided');
+    // ── Guard: header shape ────────────────────────────────────────────────
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing or malformed Authorization header');
     }
 
+    const token = authHeader.slice(7).trim();
+
+    if (!token) {
+      throw new UnauthorizedException('Empty token');
+    }
+
+    // ── Guard: secret key present ──────────────────────────────────────────
+    const secretKey = this.configService.get<string>('CLERK_SECRET_KEY');
+    if (!secretKey) {
+      // This is a server misconfiguration, not a user error
+      throw new Error('CLERK_SECRET_KEY is not set in environment');
+    }
+
+    // ── Verify ────────────────────────────────────────────────────────────
     try {
       const tokenPayload = await verifyToken(token, {
-        secretKey: this.configService.get('CLERK_SECRET_KEY'),
+        secretKey,
+        // Prevents "invalid-claims" errors when your frontend origin
+        // isn't listed — add your frontend URLs here
+        authorizedParties: [
+          this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000',
+        ],
       });
 
       const clerkUser = await this.clerkClient.users.getUser(tokenPayload.sub);
-      
-      // Sync user to database
-      const dbUser = await this.usersService.syncUser(clerkUser);
+      const dbUser    = await this.usersService.syncUser(clerkUser);
 
-      // ✅ Return only the database user (cleaner)
       return dbUser;
+
     } catch (error: any) {
-      console.error('Auth error:', error);
-      
-      if (error.reason === 'token-expired') {
-        throw new UnauthorizedException('Token expired. Please refresh your session.');
+      // ── Surfaced error reasons from @clerk/backend ─────────────────────
+      // token-expired | token-not-active-yet | invalid-signature |
+      // invalid-claims | jwks-fetch-failed | jwks-remote-failed | ...
+      const reason: string = error?.reason ?? error?.message ?? 'unknown';
+
+      console.error('[ClerkStrategy] verifyToken failed:', {
+        reason,
+        tokenPrefix: token.slice(0, 20) + '…',
+        secretKeyPrefix: secretKey.slice(0, 8) + '…',
+      });
+
+      switch (reason) {
+        case 'token-expired':
+          throw new UnauthorizedException('Session expired — please sign in again');
+        case 'token-not-active-yet':
+          throw new UnauthorizedException('Token not yet active — check server clock');
+        case 'invalid-signature':
+          throw new UnauthorizedException('Token signature invalid — wrong secret key?');
+        case 'invalid-claims':
+          throw new UnauthorizedException('Token claims invalid — check frontend origin');
+        default:
+          throw new UnauthorizedException('Token verification failed');
       }
-      
-      throw new UnauthorizedException('Invalid token');
     }
   }
 }

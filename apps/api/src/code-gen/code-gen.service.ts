@@ -80,9 +80,26 @@ export class CodeGenService {
     const user = await this.getUserFromClerkId(clerkId);
     const project = await this.verifyProjectAccess(user.id, projectId);
 
-    if (!project.canvas) {
-      throw new BadRequestException('Project has no canvas data');
-    }
+    let canvas = project.canvas;
+if (!canvas) {
+  canvas = await this.prisma.canvas.create({
+    data: {
+      projectId,
+      styles: {
+        fontFamily: 'Inter, sans-serif',
+        primaryColor: '#0066cc',
+      },
+      breakpoints: [
+        { name: 'mobile', width: 375 },
+        { name: 'tablet', width: 768 },
+        { name: 'desktop', width: 1024 },
+      ],
+    },
+    include: {
+      elements: true,
+    },
+  });
+}
 
     const codeGen = await this.prisma.generatedCode.create({
       data: {
@@ -94,7 +111,7 @@ export class CodeGenService {
       },
     });
 
-    this.generateCodeAsync(codeGen.id, project, dto).catch((error) => {
+    this.generateCodeAsync(codeGen.id, { ...project, canvas }, dto).catch((error) => {
       this.logger.error('Code generation failed:', error);
       this.updateCodeGenStatus(codeGen.id, 'FAILED', error.message);
     });

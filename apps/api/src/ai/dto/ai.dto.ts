@@ -1,5 +1,3 @@
-// apps/api/src/modules/ai/dto/ai.dto.ts
-
 import {
   IsString,
   IsOptional,
@@ -10,9 +8,22 @@ import {
   Max,
   IsEnum,
   IsInt,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JobStatus } from '@webra/database';
+
+export class FileEntryDto {
+  @IsString()
+  path: string;
+
+  @IsString()
+  content: string;
+
+  @IsString()
+  kind: string;
+}
 
 export class GenerateDto {
   @IsString()
@@ -26,6 +37,12 @@ export class GenerateDto {
   @IsObject()
   @IsOptional()
   context?: Record<string, any>;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => FileEntryDto)
+  entries?: FileEntryDto[];
 }
 
 export class ModifyDto {

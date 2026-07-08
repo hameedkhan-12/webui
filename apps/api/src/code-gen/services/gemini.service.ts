@@ -12,7 +12,7 @@ import {
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private genAI: GoogleGenerativeAI;
+  private genAI!: GoogleGenerativeAI;
   private model: any;
 
   constructor(private configService: ConfigService) {
@@ -187,9 +187,8 @@ REQUIREMENTS:
 - Accessibility: ${accessibility ? 'WCAG 2.1 Level AA compliant' : 'Basic'}
 - File extension: .${extension}
 
-${
-  framework === Framework.NEXT && useServerComponents
-    ? `
+${framework === Framework.NEXT && useServerComponents
+        ? `
 NEXT.JS 16 SPECIFIC:
 - Use Server Components by default (async function components)
 - Only add 'use client' directive if component uses:
@@ -199,8 +198,8 @@ NEXT.JS 16 SPECIFIC:
 - Use Server Actions for form submissions
 - Leverage React 19's async components
 `
-    : ''
-}
+        : ''
+      }
 
 REACT 19+ FEATURES TO USE:
 - Use the new 'use' hook for data fetching in Server Components
@@ -226,9 +225,8 @@ ${bestPractices.map((practice) => `- ${practice}`).join('\n')}
 STYLING RULES:
 ${this.getStylingRules(styling)}
 
-${
-  framework === Framework.NEXT
-    ? `
+${framework === Framework.NEXT
+        ? `
 NEXT.JS 16 FEATURES:
 - Use next/image for all images
 - Use next/link for navigation
@@ -237,8 +235,8 @@ NEXT.JS 16 FEATURES:
 - Use Turbopack optimizations
 - Implement proper metadata API
 `
-    : ''
-}
+        : ''
+      }
 
 STRUCTURE:
 1. File header with 'use client' or 'use server' if needed

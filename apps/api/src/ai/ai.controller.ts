@@ -10,7 +10,9 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
+import * as express from 'express';
 import { AiService } from './ai.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { CurrentUser } from 'src/decorators/current-user.decorator';
@@ -35,6 +37,26 @@ export class AiController {
     @Body() dto: GenerateDto,
   ) {
     return this.aiService.generate(user.clerkId, dto);
+  }
+
+  @Post('generate-stream')
+  async generateStream(
+    @CurrentUser() user: { clerkId: string },
+    @Body() dto: GenerateDto,
+    @Res() res: express.Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+      await this.aiService.generateStream(user.clerkId, dto, res);
+    } catch (error: any) {
+      console.error('[generateStream] Controller error:', error);
+      res.write(`data: ${JSON.stringify({ type: 'error', data: { message: error?.message || String(error) } })}\n\n`);
+    } finally {
+      res.end();
+    }
   }
 
   @Post('modify')

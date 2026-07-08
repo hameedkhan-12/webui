@@ -12,15 +12,27 @@ import { CreateVersionDto } from './dto/create-version.dto';
 export class ProjectsService {
   constructor(private readonly prisma: PrismaService) {}
   async createProject(userId: string, createProjectDto: CreateProjectDto) {
-    const slug =
+    const baseSlug =
       createProjectDto.slug || this.generateSlug(createProjectDto.name);
 
-    const existingProject = await this.prisma.project.findUnique({
+    // Check if slug already exists and append timestamp if it does
+    let slug = baseSlug;
+    let existingProject = await this.prisma.project.findUnique({
       where: { slug },
     });
 
     if (existingProject) {
-      throw new BadRequestException(`Project with slug ${slug} already exists`);
+      // Append timestamp to make it unique
+      slug = `${baseSlug}-${Date.now()}`;
+      existingProject = await this.prisma.project.findUnique({
+        where: { slug },
+      });
+
+      if (existingProject) {
+        throw new BadRequestException(
+          `Could not create project with unique slug for name "${createProjectDto.name}"`,
+        );
+      }
     }
 
     return this.prisma.project.create({

@@ -21,6 +21,8 @@ import { AssetsModule } from './assets/assets.module';
 import { CmsModule } from './cms/cms.module';
 import { TemplatesModule } from './templates/templates.module';
 import { CollaborationModule } from './collaborators/collaborators.module';
+import { WorkspaceModule } from './workspace/workspace.module';
+import { AuraModule } from './aura/aura.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { CollaborationModule } from './collaborators/collaborators.module';
     CmsModule,
     TemplatesModule,
     CollaborationModule,
+    WorkspaceModule,
+    AuraModule,
   ],
   controllers: [AppController],
   providers: [

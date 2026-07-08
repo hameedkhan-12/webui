@@ -30,19 +30,21 @@ export class R2StorageService {
     const r2 = this.config.publishing?.r2;
 
     if (!r2?.accountId || !r2?.accessKeyId || !r2?.secretAccessKey) {
-      throw new Error(
-        'R2 credentials are not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in your .env file.',
+      this.logger.warn(
+        'R2 credentials are not fully configured. Publishing features will be unavailable. ' +
+        'Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in your .env file.',
       );
+      this.client = null as any;
+    } else {
+      this.client = new S3Client({
+        region: 'auto',
+        endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: r2.accessKeyId,
+          secretAccessKey: r2.secretAccessKey,
+        },
+      });
     }
-
-    this.client = new S3Client({
-      region: 'auto',
-      endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: r2.accessKeyId,
-        secretAccessKey: r2.secretAccessKey,
-      },
-    });
   }
 
   /**
@@ -56,6 +58,7 @@ export class R2StorageService {
    * Returns the public CDN URL for the project root.
    */
   async uploadSite(options: R2UploadOptions): Promise<string> {
+    this.checkClient();
     const { projectSlug, files } = options;
     const prefix = `sites/${projectSlug}`;
 
@@ -86,6 +89,7 @@ export class R2StorageService {
    * Lists and deletes in batches of 1000 (R2/S3 limit).
    */
   async deleteSite(projectSlug: string): Promise<void> {
+    this.checkClient();
     const prefix = `sites/${projectSlug}/`;
     this.logger.log(`Deleting site files at ${prefix}`);
 
@@ -126,6 +130,7 @@ export class R2StorageService {
    */
   async siteExists(projectSlug: string): Promise<boolean> {
     try {
+      this.checkClient();
       await this.client.send(
         new HeadObjectCommand({
           Bucket: this.config.publishing?.r2.bucketName,
@@ -145,6 +150,7 @@ export class R2StorageService {
  */
 async getFile(key: string): Promise<R2File | null> {
   try {
+    this.checkClient();
     const response = await this.client.send(
       new GetObjectCommand({
         Bucket: this.config.publishing?.r2.bucketName,
@@ -172,6 +178,15 @@ async getFile(key: string): Promise<R2File | null> {
     throw error;
   }
 }
+
+  private checkClient() {
+    if (!this.client) {
+      throw new Error(
+        'R2 storage is not configured. Please set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY in your .env file.',
+      );
+    }
+  }
+
   // ── Private ─────────────────────────────────────────────────────────────────
 
   private async uploadFile(key: string, file: BundledFile): Promise<void> {

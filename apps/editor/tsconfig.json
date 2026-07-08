@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/aura-kernel" },
+    { "path": "../../packages/component-registry" },
+    { "path": "../../packages/schema-engine" },
+    { "path": "../../packages/ast-engine" }
+  ]
+}

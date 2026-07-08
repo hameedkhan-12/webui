@@ -1,0 +1,24 @@
+{
+  "name": "@aura/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"editor dev server — Subsystem 9\"",
+    "build": "echo \"editor build — Subsystem 9\"",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"lint: not configured yet\""
+  },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "@aura/kernel": "workspace:*",
+    "@aura/component-registry": "workspace:*",
+    "@aura/schema-engine": "workspace:*",
+    "@aura/ast-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

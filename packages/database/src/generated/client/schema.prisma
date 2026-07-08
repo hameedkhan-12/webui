@@ -1,0 +1,577 @@
+// schema.prisma — full updated file
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum CodeGenStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum PublishStatus {
+  IDLE
+  BUNDLING
+  UPLOADING
+  PUBLISHED
+  FAILED
+}
+
+enum PublishTrigger {
+  MANUAL
+  AUTO
+}
+
+enum FieldType {
+  TEXT
+  RICH_TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  MEDIA
+  SELECT
+  RELATION
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+  OTHER
+}
+
+enum EntryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+////////
+enum AssetType {
+  IMAGE
+  VIDEO
+  FONT
+  DOCUMENT
+  OTHER
+}
+
+//////
+enum OptimizationStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+///////
+
+enum TemplateCategory {
+  LANDING_PAGE
+  PORTFOLIO
+  BLOG
+  ECOMMERCE
+  DASHBOARD
+  SAAS
+  AGENCY
+  PERSONAL
+  OTHER
+}
+
+enum TemplateFramework {
+  REACT
+  VUE
+  SVELTE
+  NEXT
+}
+
+///////// PROJEct COllaborator
+enum COllaboratorRole {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+// ─────────────────────────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id      String   @id @default(uuid())
+  clerkId String   @unique
+  email   String   @unique
+  name    String?
+  avatar  String?
+  role    UserRole @default(USER)
+
+  ownedProjects  Project[]         @relation("ProjectOwner")
+  aiJobs         AIGenerationJob[]
+  canvasChanges  CanvasChange[]
+  elementLocks   ElementLock[]
+  publishRecords PublishRecord[]
+
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  collaborations ProjectCollaborator[]
+  comments       ProjectComment[]
+
+  @@index([email])
+  @@index([clerkId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Project
+// ─────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  description String?
+  thumbnail   String?
+
+  ownerId String
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  publishSlug   String?   @unique
+  publishedUrl  String?
+  publishedAt   DateTime?
+  lastPublishId String?
+
+  versions         ProjectVersion[]
+  aiJobs           AIGenerationJob[]
+  canvas           Canvas?
+  generatedCode    GeneratedCode[]
+  publishRecords   PublishRecord[]
+  cmsCollections   CmsCollection[]
+  cmsEntries       CmsEntry[]
+  cmsMedias        CmsMedia[]
+  assets           Asset[]
+  workspaceEntries WorkspaceEntry[]
+
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  templateUsages ProjectTemplate[]
+  collaborators  ProjectCollaborator[]
+  comments       ProjectComment[]
+
+  @@index([ownerId])
+  @@index([slug])
+  @@index([publishSlug])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Publish
+// ─────────────────────────────────────────────────────────────────
+
+model PublishRecord {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  publishedBy String
+  user        User   @relation(fields: [publishedBy], references: [id])
+
+  projectSlug  String
+  url          String
+  version      Int
+  framework    String
+  trigger      PublishTrigger @default(MANUAL)
+  status       PublishStatus  @default(IDLE)
+  buildTime    Int?
+  totalSize    BigInt?
+  fileCount    Int?
+  errorMessage String?
+  publishedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@index([projectId, status])
+  @@index([publishedBy])
+  @@index([projectSlug])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Canvas
+// ─────────────────────────────────────────────────────────────────
+
+model ProjectVersion {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  version   Int
+  snapshot  Json
+  message   String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+model Canvas {
+  id        String  @id @default(uuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  elements    CanvasElement[]
+  styles      Json            @default("{}")
+  breakpoints Json            @default("{\"mobile\":640,\"tablet\":768,\"desktop\":1024}")
+  version     Int             @default(1)
+  changes     CanvasChange[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model CanvasElement {
+  id       String @id @default(uuid())
+  canvasId String
+  canvas   Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
+
+  type             String
+  name             String
+  props            Json    @default("{}")
+  styles           Json    @default("{}")
+  parentId         String?
+  order            Int     @default(0)
+  locked           Boolean @default(false)
+  hidden           Boolean @default(false)
+  responsiveStyles Json    @default("{}")
+
+  createdBy String
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locks ElementLock[]
+
+  @@index([canvasId])
+  @@index([parentId])
+  @@index([canvasId, parentId, order])
+  @@index([createdAt])
+}
+
+model CanvasChange {
+  id       String @id @default(uuid())
+  canvasId String
+  canvas   Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  operation String
+  elementId String?
+  before    Json?
+  after     Json?
+  sessionId String
+  timestamp DateTime @default(now())
+
+  @@index([canvasId, timestamp])
+  @@index([userId])
+  @@index([sessionId])
+}
+
+model ElementLock {
+  id        String        @id @default(uuid())
+  elementId String
+  element   CanvasElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName  String
+  lockedAt  DateTime @default(now())
+  expiresAt DateTime
+
+  @@unique([elementId])
+  @@index([elementId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AI
+// ─────────────────────────────────────────────────────────────────
+
+model AIGenerationJob {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  prompt  String
+  context Json      @default("{}")
+  jobType String
+  status  JobStatus @default(PENDING)
+  result  Json?
+  error   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([status])
+  @@index([jobType])
+  @@index([createdAt])
+}
+
+model GeneratedCode {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  framework    String
+  status       CodeGenStatus @default(PENDING)
+  files        Json          @default("[]")
+  dependencies Json          @default("{}")
+  error        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CMS
+// ─────────────────────────────────────────────────────────────────
+
+model CmsCollection {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String
+  slug        String
+  description String?
+  fields      Json    @default("[]")
+
+  entries   CmsEntry[]
+  createdBy String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+model CmsEntry {
+  id           String        @id @default(uuid())
+  collectionId String
+  collection   CmsCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  data        Json        @default("{}")
+  status      EntryStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdBy   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([collectionId])
+  @@index([projectId])
+  @@index([status])
+  @@index([collectionId, status])
+}
+
+model CmsMedia {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String
+  url       String
+  secureUrl String
+  publicId  String    @unique // ← FIXED: was missing @unique
+  type      MediaType
+  mimeType  String
+  size      Int
+  width     Int?
+  height    Int?
+  duration  Float?
+  folder    String    @default("cms")
+
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  @@index([projectId])
+  @@index([projectId, type])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Assets 
+// Figma-style asset panel — scoped to project, used on the canvas
+// ─────────────────────────────────────────────────────────────────
+
+model Asset {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name          String
+  url           String
+  secureUrl     String
+  publicId      String    @unique
+  assetType     AssetType
+  mimeType      String
+  size          Int // bytes — original
+  optimizedSize Int? // bytes — after optimization
+  width         Int?
+  height        Int?
+  duration      Float? // seconds, video only
+
+  optimizationStatus OptimizationStatus @default(PENDING)
+  optimizedUrl       String?
+
+  tags       String[] @default([])
+  uploadedBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, assetType])
+  @@index([projectId, optimizationStatus])
+  @@index([createdAt])
+}
+
+/////////////// TEMPLATE
+
+model Template {
+  id          String            @id @default(uuid())
+  name        String
+  description String
+  category    TemplateCategory
+  framework   TemplateFramework
+  previewUrl  String
+  demoUrl     String
+
+  files        Json @default("[]")
+  dependencies Json @default("{}")
+
+  tags       String[] @default([])
+  isPremium  Boolean  @default(false)
+  usageCount Int      @default(0)
+
+  projectsUsed ProjectTemplate[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([framework])
+  @@index([isPremium])
+  @@index([usageCount])
+  @@index([createdAt])
+}
+
+model ProjectTemplate {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  usedBy String
+  usedAt DateTime @default(now())
+
+  @@unique([projectId, templateId])
+  @@index([projectId])
+  @@index([templateId])
+  @@index([usedAt])
+}
+
+model ProjectCollaborator {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role     COllaboratorRole @default(VIEWER)
+  joinedAt DateTime         @default(now())
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model ProjectComment {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  content   String
+  elementId String?
+  resolved  Boolean @default(false)
+
+  parentId String?
+  parent   ProjectComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  ProjectComment[] @relation("CommentReplies")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, elementId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+model WorkspaceEntry {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  path      String
+  content   String
+  kind      String // "file" | "folder"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, path])
+  @@index([projectId])
+}

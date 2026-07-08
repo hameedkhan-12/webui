@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/aura-kernel" },
+    { "path": "../../packages/component-registry" },
+    { "path": "../../packages/schema-engine" },
+    { "path": "../../packages/ast-engine" },
+    { "path": "../../packages/persistence" }
+  ]
+}

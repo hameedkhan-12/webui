@@ -16,3 +16,53 @@ export * from "./types/storage.types";
 export * from "./types/template.types";
 
 export * from "./types/collaboration.types";
+
+export * from "./types/workspace.types";
+
+// Aura core interfaces (Phase 1)
+export type {
+  RegistryLifecycle,
+  IRegistry,
+} from "./registry.interface";
+
+export type { IAuraKernel } from "./kernel.interface";
+
+export type {
+  ComponentMeta,
+  ComponentCategory,
+  SlotDefinition,
+  EventDefinition,
+} from "./component-meta.interface";
+
+export type {
+  ComponentSchema,
+  SchemaFieldType,
+  SchemaField,
+  SchemaFieldValidation,
+  SelectOption,
+  TailwindMapping,
+} from "./component-schema.interface";
+
+export type {
+  IPersistenceAdapter,
+  BaseOperation,
+  UpdatePropOperation,
+  UpdateStyleOperation,
+  UpdateChildrenOperation,
+  AddClassOperation,
+  RemoveClassOperation,
+} from "./persistence.interface";
+
+export type {
+  SelectionState,
+  DOMRectLike,
+} from "./selection.interface";
+
+export type { AuraEvent, IEventBus } from "./event.interface";
+
+export type {
+  AIContextDescriptor,
+  IAIRegistry,
+  AIContextQuery,
+} from "./ai-context.interface";
+

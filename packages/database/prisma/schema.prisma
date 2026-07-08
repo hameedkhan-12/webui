@@ -2,6 +2,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/client"
 }
 
 datasource db {
@@ -169,6 +170,7 @@ model Project {
   cmsEntries     CmsEntry[]
   cmsMedias      CmsMedia[]
   assets         Asset[]
+  workspaceEntries WorkspaceEntry[]
 
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
@@ -559,3 +561,18 @@ model ProjectComment {
   @@index([parentId])
   @@index([createdAt])
 }
+
+model WorkspaceEntry {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  path      String
+  content   String
+  kind      String   // "file" | "folder"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, path])
+  @@index([projectId])
+}
+

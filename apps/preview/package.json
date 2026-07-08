@@ -1,0 +1,21 @@
+{
+  "name": "@aura/preview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"preview dev server — Subsystem 5/10\"",
+    "build": "echo \"preview build — Subsystem 5/10\"",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"lint: not configured yet\""
+  },
+  "dependencies": {
+    "@aura/plugins": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8",
+    "jsdom": "^24.0.0"
+  }
+}

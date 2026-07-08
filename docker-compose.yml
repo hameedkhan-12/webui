@@ -2,10 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     environment:
-      POSTGRES_DB: ${DATABASE_NAME:-app}
+      POSTGRES_DB: ${DATABASE_NAME:-excalidraw}
       POSTGRES_USER: ${DATABASE_USER:-postgres}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?required}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -19,10 +21,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     command: >
       redis-server
       --appendonly yes
-      --requirepass ${REDIS_PASSWORD:?required}
+      --requirepass ${REDIS_PASSWORD:-redis123}
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
     volumes:
@@ -30,7 +34,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,10 +68,10 @@ services:
       MAX_BUILD_TIME_MS: ${MAX_BUILD_TIME_MS:-30000} # 30s
       PUBLISH_CONCURRENCY: ${PUBLISH_CONCURRENCY:-5}
 
-      PORT: 3000
+      PORT: 3003
       NODE_ENV: production
     ports:
-      - "3000:3000"
+      - "3003:3000"
     networks:
       - internal
       - public

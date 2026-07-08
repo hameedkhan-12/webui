@@ -5,9 +5,10 @@ import { AiService } from './ai.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiController } from './ai.controller';
 import { InngestModule } from 'src/inngest/inngest.module';
+import { WorkspaceModule } from '../workspace/workspace.module';
 
 @Module({
-  imports: [PrismaModule, InngestModule],
+  imports: [PrismaModule, InngestModule, WorkspaceModule],
   controllers: [AiController],
   providers: [AiService],
   exports: [AiService],

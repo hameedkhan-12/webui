@@ -10,8 +10,7 @@ async function main() {
     data: {
       clerkId: 'test_clerk_id_123',
       email: 'test@example.com',
-      firstName: 'Test',
-      lastName: 'User',
+      name: 'Test User',
     },
   });
 

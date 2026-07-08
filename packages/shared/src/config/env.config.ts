@@ -6,8 +6,8 @@ const envSchema = z.object({
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z
     .string()
     .min(1, "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required"),
-  API_PORT: z.coerce.number().int().positive().optional().default(3001),
-  API_URL: z.string().url().optional().default("http://localhost:3001"),
+  API_PORT: z.coerce.number().int().positive().optional().default(3003),
+  API_URL: z.string().url().optional().default("http://localhost:3003"),
 
   INNGEST_EVENT_KEY: z.string().optional(),
   INNGEST_SIGNING_KEY: z.string().optional(),

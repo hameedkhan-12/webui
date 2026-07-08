@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@aura/shared": ["./packages/shared/src/index.ts"],
+      "@aura/shared/*": ["./packages/shared/src/*"],
+      "@aura/kernel": ["./packages/aura-kernel/src/index.ts"],
+      "@aura/component-registry": ["./packages/component-registry/src/index.ts"],
+      "@aura/schema-engine": ["./packages/schema-engine/src/index.ts"],
+      "@aura/ast-engine": ["./packages/ast-engine/src/index.ts"],
+      "@aura/persistence": ["./packages/persistence/src/index.ts"],
+      "@aura/plugins": ["./packages/plugins/src/index.ts"]
+    }
+  }
+}
