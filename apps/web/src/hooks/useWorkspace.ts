@@ -237,8 +237,30 @@ export function useWorkspace() {
           const t0 = Date.now();
 
           // mount() throws if the target directory doesn't exist yet
+          // mount() throws if the target directory doesn't exist yet
           await wc.fs.mkdir("node_modules", { recursive: true });
           await wc.mount(snapshot, { mountPoint: "node_modules" });
+
+          // Re-assert exec permissions lost in the snapshot round-trip
+          try {
+            const chmodProc = await wc.spawn("chmod", [
+              "-R",
+              "+x",
+              "node_modules/.bin",
+            ]);
+            const chmodCode = await chmodProc.exit;
+            if (chmodCode !== 0) {
+              appendTerminalOutput(
+                `⚠️ chmod on node_modules/.bin exited with code ${chmodCode}.`,
+                "warning",
+              );
+            }
+          } catch (chmodErr: any) {
+            appendTerminalOutput(
+              `⚠️ Could not chmod node_modules/.bin: ${chmodErr?.message ?? chmodErr}`,
+              "warning",
+            );
+          }
 
           const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
           appendTerminalOutput(
@@ -320,13 +342,36 @@ export function useWorkspace() {
 
       appendTerminalOutput("~/project $ npm run dev", "input");
       const devProc = await wc.spawn("npm", ["run", "dev"]);
+
+      let sawSpawnPermissionError = false;
       void devProc.output.pipeTo(
         new WritableStream({
           write(data) {
+            if (/EACCES|permission denied/i.test(data)) {
+              sawSpawnPermissionError = true;
+            }
             appendTerminalOutput(data, "info");
           },
         }),
       );
+
+      if (restoredFromCache) {
+        void devProc.exit.then((code) => {
+          if (
+            !devServerStartedRef.current &&
+            (code !== 0 || sawSpawnPermissionError)
+          ) {
+            appendTerminalOutput(
+              "⚠️ Cached node_modules failed to start the dev server — invalidating cache and reinstalling.",
+              "warning",
+            );
+            void deleteProjectSnapshots(projectId).then(() => {
+              isInstallingRef.current = false;
+              void runInstallAndDev(wc);
+            });
+          }
+        });
+      }
     } catch (err: any) {
       appendTerminalOutput(`❌ Execution failed: ${err.message}`, "error");
       setWebcontainerStatus("error");
