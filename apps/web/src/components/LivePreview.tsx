@@ -69,6 +69,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   >("desktop");
   const [compileError, setCompileError] = React.useState<string | null>(null);
   const [iframeKey, setIframeKey] = React.useState<number>(0);
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   const [urlPath, setUrlPath] = React.useState("/");
   const [inputValue, setInputValue] = React.useState("/");
@@ -141,6 +142,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     }
   }, [debouncedFiles, isWebContainerMode, designMode, selectedElement?.id]);
 
+  const [inspectorReady, setInspectorReady] = React.useState(false);
+  const inspectorReadyRef = React.useRef(false);
+
   React.useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       const data = e.data;
@@ -148,14 +152,20 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
       if (data.type === 'AURA_REGISTER_GENERATED_COMPONENT') {
         try {
-          const iframe = document.querySelector('iframe[title="App preview"]') as HTMLIFrameElement | null;
-          if (iframe && iframe.contentWindow) {
+          const iframe = iframeRef.current;
+          if (iframe?.contentWindow) {
             iframe.contentWindow.postMessage({ type: 'REGISTER_GENERATED_COMPONENT', meta: data.meta, path: data.path }, '*');
             onAddConsoleLine(`Registered generated component ${data.meta?.name ?? data.path}`, 'info');
           }
         } catch (err) {
           // ignore
         }
+        return;
+      }
+
+      if (data.type === "INSPECTOR_READY") {
+        inspectorReadyRef.current = true;
+        setInspectorReady(true);
         return;
       }
 
@@ -201,9 +211,15 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   // This handles the case where layout.tsx was mounted before the inspector was added.
   const RUNTIME_INSPECTOR = React.useMemo(() => `
 (function() {
-  if (window.__inspectorInjected) return;
+  if (window.__inspectorInjected) {
+    // Already injected — just ack again so parent stops polling
+    window.parent.postMessage({type:'INSPECTOR_READY'},'*');
+    return;
+  }
   window.__inspectorInjected = true;
   window.__designMode = true;
+  // Ack to parent immediately so it stops polling
+  window.parent.postMessage({type:'INSPECTOR_READY'},'*');
   var idCounter = 5000;
   var style = document.createElement('style');
   style.innerHTML = '.designer-hover{outline:1.5px dashed rgba(168,85,247,0.6)!important;outline-offset:-1.5px!important;cursor:pointer!important}.designer-selected{outline:2px solid #a855f7!important;outline-offset:-2px!important}.designer-dragover{outline:2.5px dashed #a855f7!important;outline-offset:-2.5px!important;background-color:rgba(168,85,247,0.15)!important}';
@@ -211,6 +227,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   window.addEventListener('message',function(e){
     if(!e.data)return;
     if(e.data.type==='SET_DESIGN_MODE')window.__designMode=!!e.data.enabled;
+    if(e.data.type==='INJECT_INSPECTOR'){
+      // Re-ack on every INJECT_INSPECTOR so parent polling always gets a response
+      window.parent.postMessage({type:'INSPECTOR_READY'},'*');
+    }
     if(e.data.type==='SELECT_ELEMENT'){
       document.querySelectorAll('.designer-selected').forEach(function(x){x.classList.remove('designer-selected');});
       if(e.data.id){
@@ -246,37 +266,75 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 })();
   `, []);
 
+  // suppress unused warning — inspectorReady is consumed by the polling logic via ref
+  void inspectorReady;
+
+  // ── Reliable inspector injection via polling ──────────────────────────────────
+  // We cannot rely on a single postMessage shot because:
+  //   a) The iframe's message listener may not be registered yet (fast cache load)
+  //   b) React 19 App Router may silently drop <script dangerouslySetInnerHTML> in layout.tsx
+  // Strategy: poll every 800ms sending INJECT_INSPECTOR until the iframe acks with INSPECTOR_READY.
+  // Reset the ack state whenever the iframe navigates (onLoad fires).
+  const pollingRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const designModeRef = React.useRef(designMode);
+  designModeRef.current = designMode;
+
+  const stopPolling = React.useCallback(() => {
+    if (pollingRef.current !== null) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = React.useCallback(() => {
+    stopPolling();
+    inspectorReadyRef.current = false;
+    setInspectorReady(false);
+
+    pollingRef.current = setInterval(() => {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+
+      // Send design mode on every tick regardless of ack
+      win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designModeRef.current }, '*');
+
+      // Keep injecting inspector until acked
+      if (!inspectorReadyRef.current) {
+        win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
+      } else {
+        stopPolling();
+      }
+    }, 800);
+  }, [stopPolling, RUNTIME_INSPECTOR]);
+
+  // Start polling when iframe loads a new page
+  const handleIframeLoad = React.useCallback(() => {
+    startPolling();
+  }, [startPolling]);
+
+  // Re-send design mode immediately when it changes (user switches Design ↔ Interact)
   React.useEffect(() => {
-    if (!devServerActive) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designMode }, '*');
+    // If switching to design mode and inspector was previously ready, just re-enable
+    // If not ready yet, polling will handle it
+    if (designMode && !inspectorReadyRef.current) {
+      win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
+    }
+  }, [designMode, RUNTIME_INSPECTOR]);
 
-    const getIframe = () =>
-      document.querySelector('iframe[title="App preview"]') as HTMLIFrameElement | null;
+  // Kick off initial polling when WebContainer preview first becomes available
+  React.useEffect(() => {
+    if (devServerActive && useWebContainerPreview) {
+      startPolling();
+    }
+    return stopPolling;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devServerActive, useWebContainerPreview]);
 
-    const sendDesignMode = () => {
-      const iframe = getIframe();
-      if (iframe?.contentWindow) {
-        iframe.contentWindow.postMessage({ type: "SET_DESIGN_MODE", enabled: designMode }, "*");
-      }
-    };
-
-    // When design mode turns ON, also inject the runtime inspector directly
-    // so it works even on apps that were mounted before our fix
-    const injectIfNeeded = () => {
-      if (!designMode) return;
-      const iframe = getIframe();
-      if (iframe?.contentWindow) {
-        iframe.contentWindow.postMessage(
-          { type: "INJECT_INSPECTOR", script: RUNTIME_INSPECTOR },
-          "*",
-        );
-      }
-    };
-
-    sendDesignMode();
-    const t1 = setTimeout(() => { sendDesignMode(); injectIfNeeded(); }, 500);
-    const t2 = setTimeout(() => { sendDesignMode(); injectIfNeeded(); }, 1500);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [designMode, devServerActive, webcontainerUrl, iframeKey, RUNTIME_INSPECTOR]);
+  // Cleanup on unmount
+  React.useEffect(() => stopPolling, [stopPolling]);
 
   React.useEffect(() => {
     const iframe = document.querySelector('iframe[title="App preview"]') as HTMLIFrameElement | null;
@@ -833,6 +891,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
           >
             <iframe
               key={iframeKey}
+              ref={iframeRef}
               title="App preview"
               src={
                 useWebContainerPreview
@@ -843,6 +902,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               className="w-full h-full min-h-50 bg-[#070913]"
               allow="cross-origin-isolated"
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+              onLoad={handleIframeLoad}
             />
           </div>
         )}
