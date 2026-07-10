@@ -85,6 +85,17 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     return baseUrl + (urlPath === "/" ? "" : urlPath);
   }, [baseUrl, urlPath]);
 
+  const cacheBust = React.useMemo(() => {
+    return `t=${Date.now()}_${iframeKey}`;
+  }, [iframeKey]);
+
+  const iframeSrc = React.useMemo(() => {
+    if (!useWebContainerPreview) return undefined;
+    const base = previewUrl + (urlPath === "/" ? "" : urlPath);
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}${cacheBust}`;
+  }, [useWebContainerPreview, previewUrl, urlPath, cacheBust]);
+
   React.useEffect(() => {
     if (baseUrl) {
       setInputValue(baseUrl + (urlPath === "/" ? "" : urlPath));
@@ -164,12 +175,14 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       }
 
       if (data.type === "INSPECTOR_READY") {
+        console.log('[LivePreview] Received INSPECTOR_READY from iframe');
         inspectorReadyRef.current = true;
         setInspectorReady(true);
         return;
       }
 
       if (data.type === "ELEMENT_SELECTED") {
+        console.log('[LivePreview] Received ELEMENT_SELECTED:', data.id, data.tagName);
         onSelectElement({
           id: data.id,
           tagName: data.tagName,
@@ -252,7 +265,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       e.preventDefault();e.stopPropagation();
       document.querySelectorAll('.designer-selected').forEach(function(x){x.classList.remove('designer-selected');});
       el.classList.add('designer-selected');
-      window.parent.postMessage({type:'ELEMENT_SELECTED',id:id,tagName:el.tagName,text:(el.innerText||'').slice(0,200),classes:Array.prototype.filter.call(el.classList,function(c){return c!=='designer-hover'&&c!=='designer-selected'&&c!=='designer-dragover';});},'*');
+      window.parent.postMessage({type:'ELEMENT_SELECTED',id:id,tagName:el.tagName,text:(el.innerText||'').slice(0,200),classes:Array.prototype.filter.call(el.classList,function(c){return c!=='designer-hover'&&c!=='designer-selected'&&c!=='designer-dragover';})},'*');
     });
   }
   setInterval(function(){
@@ -281,6 +294,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
   const stopPolling = React.useCallback(() => {
     if (pollingRef.current !== null) {
+      console.log('[LivePreview] Stopping polling');
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
@@ -290,11 +304,13 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     stopPolling();
     inspectorReadyRef.current = false;
     setInspectorReady(false);
+    console.log('[LivePreview] Starting polling loop...');
 
     pollingRef.current = setInterval(() => {
       const win = iframeRef.current?.contentWindow;
       if (!win) return;
 
+      console.log('[LivePreview] Polling tick: posting SET_DESIGN_MODE =', designModeRef.current, 'ready =', inspectorReadyRef.current);
       // Send design mode on every tick regardless of ack
       win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designModeRef.current }, '*');
 
@@ -309,6 +325,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
   // Start polling when iframe loads a new page
   const handleIframeLoad = React.useCallback(() => {
+    console.log('[LivePreview] iframe onLoad fired');
     startPolling();
   }, [startPolling]);
 
@@ -316,10 +333,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   React.useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
+    console.log('[LivePreview] designMode changed to:', designMode, 'posting SET_DESIGN_MODE immediately');
     win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designMode }, '*');
     // If switching to design mode and inspector was previously ready, just re-enable
     // If not ready yet, polling will handle it
     if (designMode && !inspectorReadyRef.current) {
+      console.log('[LivePreview] switching to design mode and not ready yet, posting RUNTIME_INSPECTOR');
       win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
     }
   }, [designMode, RUNTIME_INSPECTOR]);
@@ -327,6 +346,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   // Kick off initial polling when WebContainer preview first becomes available
   React.useEffect(() => {
     if (devServerActive && useWebContainerPreview) {
+      console.log('[LivePreview] Preview active, initiating startPolling');
       startPolling();
     }
     return stopPolling;
@@ -337,9 +357,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   React.useEffect(() => stopPolling, [stopPolling]);
 
   React.useEffect(() => {
-    const iframe = document.querySelector('iframe[title="App preview"]') as HTMLIFrameElement | null;
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.postMessage({
+    const win = iframeRef.current?.contentWindow;
+    if (win) {
+      console.log('[LivePreview] selectedElement changed, posting SELECT_ELEMENT:', selectedElement?.id);
+      win.postMessage({
         type: "SELECT_ELEMENT",
         id: selectedElement?.id || null
       }, "*");
@@ -893,11 +914,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               key={iframeKey}
               ref={iframeRef}
               title="App preview"
-              src={
-                useWebContainerPreview
-                  ? previewUrl + (urlPath === "/" ? "" : urlPath)
-                  : undefined
-              }
+              src={iframeSrc}
               srcDoc={!isWebContainerMode ? getIframeSrcDoc() : undefined}
               className="w-full h-full min-h-50 bg-[#070913]"
               allow="cross-origin-isolated"

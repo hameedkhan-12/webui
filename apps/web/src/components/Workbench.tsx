@@ -258,11 +258,10 @@ function ViewButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
-        active
-          ? "bg-purple-600/15 text-purple-300 border border-purple-500/25"
-          : "text-slate-500 hover:text-slate-300 border border-transparent"
-      }`}
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${active
+        ? "bg-purple-600/15 text-purple-300 border border-purple-500/25"
+        : "text-slate-500 hover:text-slate-300 border border-transparent"
+        }`}
     >
       {icon}
       {label}

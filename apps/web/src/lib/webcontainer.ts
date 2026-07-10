@@ -72,7 +72,44 @@ export async function getWebContainer(): Promise<WebContainer> {
 const INSPECTOR_SCRIPT = `
 (function() {
   if (typeof window === 'undefined') return;
+
+  // Propagate console + errors to parent
+  var captureLog = function(level) {
+    var original = console[level];
+    return function() {
+      var args = Array.prototype.slice.call(arguments);
+      if (typeof original === 'function') {
+        try { original.apply(console, args); } catch(err) {}
+      }
+      window.parent.postMessage({
+        type: 'IFRAME_CONSOLE',
+        level: level,
+        message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
+      }, '*');
+    };
+  };
+  console.log   = captureLog('log');
+  console.error = captureLog('error');
+  console.warn  = captureLog('warn');
+  
+  var originalOnError = window.onerror;
+  window.onerror = function(message, source, lineno, colno, error) {
+    if (typeof originalOnError === 'function') {
+      try { originalOnError.apply(window, arguments); } catch(err) {}
+    }
+    window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
+    return true;
+  };
+
+  if (window.__inspectorInjected) {
+    console.log('[Inspector] Already injected in layout.tsx, sending ready signal');
+    window.parent.postMessage({type:'INSPECTOR_READY'},'*');
+    return;
+  }
+  window.__inspectorInjected = true;
   window.__designMode = false;
+  console.log('[Inspector] Initializing inspector script from layout.tsx...');
+  window.parent.postMessage({type:'INSPECTOR_READY'},'*');
 
   var idCounter = 1000;
 
@@ -84,34 +121,42 @@ const INSPECTOR_SCRIPT = `
   ].join('\\n');
   document.head.appendChild(style);
 
-  // Propagate console + errors to parent
-  var captureLog = function(level) {
-    return function() {
-      var args = Array.prototype.slice.call(arguments);
-      window.parent.postMessage({
-        type: 'IFRAME_CONSOLE',
-        level: level,
-        message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
-      }, '*');
-    };
+  // Floating Debug Overlay Widget
+  var debugWidget = document.createElement('div');
+  debugWidget.id = 'aura-inspector-debug-widget';
+  debugWidget.style.cssText = 'position: fixed; bottom: 8px; right: 8px; background: rgba(15, 23, 42, 0.95); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 6px 10px; font-family: monospace; font-size: 10px; border-radius: 6px; z-index: 999999; pointer-events: none; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); line-height: 1.4;';
+  
+  var attachWidget = function() {
+    if (document.body && !document.getElementById('aura-inspector-debug-widget')) {
+      document.body.appendChild(debugWidget);
+    }
   };
-  console.log   = captureLog('log');
-  console.error = captureLog('error');
-  console.warn  = captureLog('warn');
-  window.onerror = function(message, _s, lineno, colno) {
-    window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
-    return true;
+  if (document.body) { attachWidget(); } else { window.addEventListener('DOMContentLoaded', attachWidget); }
+
+  var updateDebugWidget = function(msg) {
+    var wiredCount = document.querySelectorAll('[data-inspector-wired]').length;
+    debugWidget.innerHTML = [
+      '<div><strong>AURA INSPECTOR ACTIVE</strong></div>',
+      '<div>Design Mode: <span style="color: ' + (window.__designMode ? '#4ade80' : '#f87171') + '">' + window.__designMode + '</span></div>',
+      '<div>Wired Elements: ' + wiredCount + '</div>',
+      msg ? '<div style="color: #e2e8f0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 4px; padding-top: 4px;">Last Msg: ' + msg + '</div>' : ''
+    ].join('');
   };
+  updateDebugWidget('Initialized');
 
   // Accept commands from parent
   window.addEventListener('message', function(e) {
     if (!e.data) return;
     if (e.data.type === 'SET_DESIGN_MODE') {
+      console.log('[Inspector] Received SET_DESIGN_MODE from parent:', e.data.enabled);
       window.__designMode = !!e.data.enabled;
+      updateDebugWidget('SET_DESIGN_MODE: ' + e.data.enabled);
     }
     // Allow parent to inject inspector at runtime (for apps running before inspector was installed)
     if (e.data.type === 'INJECT_INSPECTOR' && typeof e.data.script === 'string') {
-      try { (0, eval)(e.data.script); } catch(err) { /* ignore */ }
+      console.log('[Inspector] Received INJECT_INSPECTOR request');
+      updateDebugWidget('INJECT_INSPECTOR');
+      try { (0, eval)(e.data.script); } catch(err) { console.error('[Inspector] Failed to eval runtime script:', err); }
     }
     if (e.data.type === 'SELECT_ELEMENT') {
       document.querySelectorAll('.designer-selected').forEach(function(x) {
@@ -122,6 +167,7 @@ const INSPECTOR_SCRIPT = `
         if (el) {
           el.classList.add('designer-selected');
           el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          updateDebugWidget('SELECT_ELEMENT: ' + e.data.id);
         }
       }
     }
@@ -217,18 +263,35 @@ const INSPECTOR_SCRIPT = `
 
   // Poll and wire new elements every 800ms (covers React re-renders)
   setInterval(function() {
+    attachWidget();
     getInspectableElements().forEach(wireElement);
+    updateDebugWidget();
   }, 800);
 })();
 `;
 
 
 function injectInspector(path: string, content: string): string {
-  if (path === "src/app/layout.tsx") {
-    return content.replace(
-      "</body>",
-      `<script dangerouslySetInnerHTML={{ __html: ${JSON.stringify(INSPECTOR_SCRIPT)} }} />\n</body>`,
-    );
+  const isLayout = path.endsWith("layout.tsx") || path.endsWith("layout.jsx") || path.endsWith("layout.js") || path.endsWith("layout.html");
+  if (isLayout) {
+    const bodyRegex = /<\/body>/i;
+    if (bodyRegex.test(content)) {
+      let modified = content;
+      if (!content.includes("import Script from 'next/script'")) {
+        const useClientRegex = /^(['"])use client\1;?\s*/i;
+        const match = content.match(useClientRegex);
+        if (match) {
+          const insertIndex = match[0].length;
+          modified = content.slice(0, insertIndex) + `import Script from 'next/script';\n` + content.slice(insertIndex);
+        } else {
+          modified = `import Script from 'next/script';\n` + content;
+        }
+      }
+      return modified.replace(
+        bodyRegex,
+        `\n<Script id="aura-inspector-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: ${JSON.stringify(INSPECTOR_SCRIPT)} }} />\n</body>`
+      );
+    }
   }
   return content;
 }
