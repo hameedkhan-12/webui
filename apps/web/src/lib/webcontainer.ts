@@ -271,28 +271,102 @@ const INSPECTOR_SCRIPT = `
 `;
 
 
-function injectInspector(path: string, content: string): string {
-  const isLayout = path.endsWith("layout.tsx") || path.endsWith("layout.jsx") || path.endsWith("layout.js") || path.endsWith("layout.html");
-  if (isLayout) {
-    const bodyRegex = /<\/body>/i;
-    if (bodyRegex.test(content)) {
-      let modified = content;
-      if (!content.includes("import Script from 'next/script'")) {
-        const useClientRegex = /^(['"])use client\1;?\s*/i;
-        const match = content.match(useClientRegex);
-        if (match) {
-          const insertIndex = match[0].length;
-          modified = content.slice(0, insertIndex) + `import Script from 'next/script';\n` + content.slice(insertIndex);
-        } else {
-          modified = `import Script from 'next/script';\n` + content;
-        }
-      }
-      return modified.replace(
-        bodyRegex,
-        `\n<Script id="aura-inspector-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: ${JSON.stringify(INSPECTOR_SCRIPT)} }} />\n</body>`
-      );
+const INSPECTOR_SCRIPT_MARKER = 'aura-inspector-script';
+
+/**
+ * Only the ROOT layout qualifies for beforeInteractive injection.
+ * Next.js explicitly restricts `strategy="beforeInteractive"` to the root
+ * layout; injecting into nested route layouts (app/dashboard/layout.tsx)
+ * produces duplicate script ids / undefined behavior.
+ */
+function isRootLayoutPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  return (
+    normalized === "src/app/layout.tsx" ||
+    normalized === "src/app/layout.jsx" ||
+    normalized === "src/app/layout.js" ||
+    normalized === "app/layout.tsx" ||
+    normalized === "app/layout.jsx" ||
+    normalized === "app/layout.js"
+  );
+}
+
+/**
+ * Finds the end index (exclusive) of a leading 'use client' / "use client"
+ * directive, tolerating leading whitespace, a UTF-8 BOM, and leading
+ * // or /* comments (all legal before a directive prologue, and common in
+ * AI-generated files). Returns 0 if no directive is present.
+ */
+function findUseClientDirectiveEnd(content: string): number {
+  let i = 0;
+  const len = content.length;
+
+  // Skip BOM
+  if (content.charCodeAt(0) === 0xfeff) i = 1;
+
+  for (; ;) {
+    // Skip whitespace/newlines
+    while (i < len && /\s/.test(content[i]!)) i++;
+
+    if (content.startsWith("//", i)) {
+      const nl = content.indexOf("\n", i);
+      i = nl === -1 ? len : nl + 1;
+      continue;
     }
+    if (content.startsWith("/*", i)) {
+      const end = content.indexOf("*/", i + 2);
+      i = end === -1 ? len : end + 2;
+      continue;
+    }
+    break;
   }
+
+  const rest = content.slice(i);
+  const match = rest.match(/^(['"])use client\1;?/);
+  return match ? i + match[0].length : 0;
+}
+
+function injectInspector(path: string, content: string): string {
+  if (!isRootLayoutPath(path)) {
+    return content;
+  }
+
+  // Idempotency guard: never re-splice if this exact content already
+  // carries the marker (e.g. redundant writes of unchanged files).
+  if (content.includes(INSPECTOR_SCRIPT_MARKER)) {
+    return content;
+  }
+
+  let modified = content;
+  if (!modified.includes("import Script from 'next/script'")) {
+    const insertIndex = findUseClientDirectiveEnd(modified);
+    modified =
+      modified.slice(0, insertIndex) +
+      (insertIndex > 0 ? `\nimport Script from 'next/script';\n` : `import Script from 'next/script';\n`) +
+      modified.slice(insertIndex);
+  }
+
+  const scriptTag = `<Script id="${INSPECTOR_SCRIPT_MARKER}" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: ${JSON.stringify(INSPECTOR_SCRIPT)} }} />`;
+
+  const bodyCloseRegex = /<\/body>/i;
+  if (bodyCloseRegex.test(modified)) {
+    return modified.replace(bodyCloseRegex, `\n${scriptTag}\n</body>`);
+  }
+
+  // Fallback: no literal </body> (e.g. custom <Body>/provider wrapper).
+  // Insert right before </html> so the script still ships instead of
+  // silently doing nothing.
+  const htmlCloseRegex = /<\/html>/i;
+  if (htmlCloseRegex.test(modified)) {
+    console.warn(
+      `[injectInspector] No </body> found in ${path}; falling back to </html> insertion point.`
+    );
+    return modified.replace(htmlCloseRegex, `${scriptTag}\n</html>`);
+  }
+
+  console.warn(
+    `[injectInspector] Could not find an insertion point in ${path} — inspector will NOT be available for this preview.`
+  );
   return content;
 }
 
