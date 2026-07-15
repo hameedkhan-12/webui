@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@repo/shared": "workspace:*",
-    "@aura/blocks": "workspace:*"
+    "@aura/blocks": "workspace:*",
+    "@aura/schema-engine": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",
