@@ -21,7 +21,7 @@ import type {
   UpdateStyleOperation,
 } from './index'
 
-describe('@aura/shared interfaces', () => {
+describe('@repo/shared interfaces', () => {
   it('exports all public interface types', () => {
     expect(true).toBe(true)
   })
@@ -29,20 +29,20 @@ describe('@aura/shared interfaces', () => {
 
 const mockRegistry = {
   namespace: 'test',
-  register: (_key: string, _value: ComponentMeta): void => {},
-  unregister: (_key: string): void => {},
+  register: (_key: string, _value: ComponentMeta): void => { },
+  unregister: (_key: string): void => { },
   get: (_key: string): ComponentMeta | undefined => undefined,
   has: (_key: string): boolean => false,
   keys: (): readonly string[] => [],
-  subscribe: (_key: string, _cb: (value: ComponentMeta | undefined) => void): (() => void) => () => {},
+  subscribe: (_key: string, _cb: (value: ComponentMeta | undefined) => void): (() => void) => () => { },
 } satisfies IRegistry<ComponentMeta>
 
 const mockKernel = {
   lifecycle: 'READY' as const,
-  mount: <T>(_registry: IRegistry<T>): void => {},
+  mount: <T>(_registry: IRegistry<T>): void => { },
   get: <T>(_namespace: string): IRegistry<T> => mockRegistry as unknown as IRegistry<T>,
-  boot: async (): Promise<void> => {},
-  dispose: (): void => {},
+  boot: async (): Promise<void> => { },
+  dispose: (): void => { },
 } satisfies IAuraKernel
 
 const mockComponentMeta = {
@@ -112,11 +112,11 @@ const mockRemoveClassOp = {
 
 const mockPersistenceAdapter = {
   name: 'ast',
-  updateProp: async (_op: UpdatePropOperation): Promise<void> => {},
-  updateStyle: async (_op: UpdateStyleOperation): Promise<void> => {},
-  updateChildren: async (_op: UpdateChildrenOperation): Promise<void> => {},
-  addClass: async (_op: AddClassOperation): Promise<void> => {},
-  removeClass: async (_op: RemoveClassOperation): Promise<void> => {},
+  updateProp: async (_op: UpdatePropOperation): Promise<void> => { },
+  updateStyle: async (_op: UpdateStyleOperation): Promise<void> => { },
+  updateChildren: async (_op: UpdateChildrenOperation): Promise<void> => { },
+  addClass: async (_op: AddClassOperation): Promise<void> => { },
+  removeClass: async (_op: RemoveClassOperation): Promise<void> => { },
 } satisfies IPersistenceAdapter
 
 const mockRect = {
@@ -144,9 +144,9 @@ const mockAuraEvent = {
 } satisfies AuraEvent
 
 const mockEventBus = {
-  emit: <T>(_event: AuraEvent<T>): void => {},
-  on: <T>(_type: string, _handler: (event: AuraEvent<T>) => void): (() => void) => () => {},
-  off: <T>(_type: string, _handler: (event: AuraEvent<T>) => void): void => {},
+  emit: <T>(_event: AuraEvent<T>): void => { },
+  on: <T>(_type: string, _handler: (event: AuraEvent<T>) => void): (() => void) => () => { },
+  off: <T>(_type: string, _handler: (event: AuraEvent<T>) => void): void => { },
 } satisfies IEventBus
 
 const mockAIContext = {
@@ -165,12 +165,12 @@ const mockAIQuery = {
 
 const mockAIRegistry = {
   namespace: 'ai',
-  register: (_key: string, _value: AIContextDescriptor): void => {},
-  unregister: (_key: string): void => {},
+  register: (_key: string, _value: AIContextDescriptor): void => { },
+  unregister: (_key: string): void => { },
   get: (_key: string): AIContextDescriptor | undefined => undefined,
   has: (_key: string): boolean => false,
   keys: (): readonly string[] => [],
-  subscribe: (_key: string, _cb: (value: AIContextDescriptor | undefined) => void): (() => void) => () => {},
+  subscribe: (_key: string, _cb: (value: AIContextDescriptor | undefined) => void): (() => void) => () => { },
   getContextSlice: (_query: AIContextQuery): readonly AIContextDescriptor[] => [],
 } satisfies IAIRegistry
 
