@@ -31,7 +31,11 @@ export function Canvas({
   const handleClickCapture = (event: MouseEvent<HTMLDivElement>) => {
     if (!enabled) return
     const id = closestAuraId(event.target)
-    if (!id) return
+    if (!id) {
+      // Clicked the canvas background — clear selection.
+      select(null)
+      return
+    }
     // Swallow the block's own interaction (link navigation, button
     // onClick, form submit) while in design mode -- we're selecting it,
     // not using it.

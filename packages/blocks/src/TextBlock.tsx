@@ -1,5 +1,5 @@
 import React from 'react';
-import type { TextBlockProps } from './types';
+import type { TextBlockProps } from './types.js';
 export type { TextBlockProps };
 
 export const TextBlock: React.FC<TextBlockProps> = ({
