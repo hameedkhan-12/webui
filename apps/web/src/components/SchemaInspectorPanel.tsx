@@ -70,6 +70,14 @@ export function SchemaInspectorPanel({ nodes, updateProp }: SchemaInspectorPanel
 
   function handleChange(field: SchemaField, value: unknown) {
     const errors = updateProp(node!.id, field.key, value)
+    
+    // TODO (Phase 4/5): Wire PersistenceService update with a debounced delay.
+    // PersistenceService currently expects a file path, line number, and auraId
+    // to execute AST-based code modifications (UpdatePropOperation). For now,
+    // updates are applied purely in-memory to the content-tree-store for
+    // instantaneous preview, and actual filesystem/database synchronization is
+    // deferred to Phase 4 (tree composition) and Phase 5 (AST synchronization).
+
     setFieldErrors(prev => ({
       ...prev,
       [field.key]: errors.length > 0 ? (errors[0]!.message) : ''
@@ -221,10 +229,15 @@ function renderInput(
       )
 
     case 'select':
+      const stringValue = value !== undefined && value !== null ? String(value) : ''
       return (
         <select
-          value={typeof value === 'string' ? value : ''}
-          onChange={e => onChange(e.target.value)}
+          value={stringValue}
+          onChange={e => {
+            const rawVal = e.target.value
+            const isNumeric = typeof field.defaultValue === 'number' || typeof value === 'number'
+            onChange(isNumeric ? Number(rawVal) : rawVal)
+          }}
           className="flex h-8 w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
         >
           <option value="" disabled>Select…</option>

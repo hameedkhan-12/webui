@@ -6,6 +6,53 @@ import { DEFAULT_PROJECT_ID } from '../lib/workspaceApi';
 import { APP_ENTRY } from '../lib/defaultProject';
 import { normalizePath } from '../lib/workspaceFs';
 import { tagJSXCode } from '../lib/jsxUtils';
+import { fetchContentTree, saveContentTree } from '../lib/auraTreeApi';
+
+function insertNodeInList(
+  list: any[],
+  parentId: string | null,
+  slot: string,
+  newNode: any
+): { nextList: any[]; inserted: boolean } {
+  if (parentId === null) {
+    return { nextList: [...list, { ...newNode, slot: slot || undefined }], inserted: true };
+  }
+
+  let inserted = false;
+  const nextList = list.map(node => {
+    if (node.id === parentId) {
+      inserted = true;
+      const nextChildren = [...(node.children || []), { ...newNode, slot: slot || undefined }];
+      return { ...node, children: nextChildren };
+    }
+    if (node.children) {
+      const res = insertNodeInList(node.children, parentId, slot, newNode);
+      if (res.inserted) {
+        inserted = true;
+        return { ...node, children: res.nextList };
+      }
+    }
+    return node;
+  });
+  return { nextList, inserted };
+}
+
+function replaceNodeInList(
+  list: any[],
+  id: string,
+  updater: (node: any) => any
+): any[] {
+  return list.map(node => {
+    if (node.id === id) {
+      return updater(node);
+    }
+    if (node.children) {
+      const nextChildren = replaceNodeInList(node.children, id, updater);
+      return { ...node, children: nextChildren };
+    }
+    return node;
+  });
+}
 
 interface UseAiProps {
   files: WorkspaceFiles;
@@ -295,6 +342,63 @@ export function useAI({
           }
         }
 
+        if (message.type === 'tree-op') {
+          const ops = message.data?.ops;
+          if (Array.isArray(ops)) {
+            pushLogs(['🔄 Fetching current content tree...']);
+            updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+
+            try {
+              const currentNodes = await fetchContentTree(projectId, token) || [];
+              let updatedNodes = [...currentNodes];
+              pushLogs(['🔄 Applying AI tree operations...']);
+              updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+
+              for (const op of ops) {
+                if (op.kind === 'insert') {
+                  const { nextList, inserted } = insertNodeInList(updatedNodes, op.parentId, op.slot, op.node);
+                  if (inserted) {
+                    updatedNodes = nextList;
+                    pushLogs([`✅ Inserted Block "${op.node.type}"`]);
+                  } else {
+                    pushLogs([`⚠️ Parent block "${op.parentId}" not found`]);
+                  }
+                } else if (op.kind === 'updateProps') {
+                  updatedNodes = replaceNodeInList(updatedNodes, op.nodeId, (node) => ({
+                    ...node,
+                    props: { ...node.props, ...op.props }
+                  }));
+                  pushLogs([`✅ Updated properties on block "${op.nodeId}"`]);
+                }
+              }
+
+              pushLogs(['🔄 Saving content tree...']);
+              updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+              await saveContentTree(projectId, updatedNodes, token);
+
+              // Broadcast update to other tabs (e.g. visual editor canvas)
+              try {
+                const channel = new BroadcastChannel('aura-tree-updates');
+                channel.postMessage({ projectId, nodes: updatedNodes });
+                channel.close();
+              } catch (e) {
+                // ignore
+              }
+
+              handleAddConsoleLine('✅ Applied tree operations successfully', 'success');
+              pushLogs(['✅ Visual blocks composition completed successfully!']);
+              updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+
+              createdFileCount = ops.length;
+            } catch (err: any) {
+              const errMsg = err?.message || String(err);
+              pushLogs([`❌ Tree-op error: ${errMsg}`]);
+              updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+            }
+          }
+          continue;
+        }
+
         if (message.type === 'file') {
           const fileUpdate = message.data as any;
           if (!fileUpdate?.path) continue;
@@ -361,7 +465,9 @@ export function useAI({
         if (entry) setActiveFile(entry);
 
         handleAddConsoleLine(
-          `✅ AI generated ${createdFileCount} file(s)`,
+          newTabs.length > 0
+            ? `✅ AI generated ${createdFileCount} file(s)`
+            : `✅ AI applied ${createdFileCount} tree operation(s)`,
           'success'
         );
 

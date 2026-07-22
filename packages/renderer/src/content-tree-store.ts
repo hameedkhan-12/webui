@@ -18,6 +18,59 @@ export interface ContentTreeStore {
    * injection could.
    */
   updateProp(nodeId: string, propKey: string, value: unknown): readonly ValidationError[]
+  /**
+   * Validates the node and its children recursively, and if valid,
+   * inserts it into the tree under parentId/slot. If parentId is null,
+   * it inserts it at the root of the tree.
+   */
+  insertNode(parentId: string | null, slot: string, node: ContentNode): readonly ValidationError[]
+}
+
+function validateNode(node: ContentNode, runtime: AuraRuntime): ValidationError[] {
+  const schema = runtime.schemas.get(node.type)
+  if (!schema) {
+    return [{ field: 'type', message: `Block type "${node.type}" is not registered.` }]
+  }
+
+  const errors: ValidationError[] = []
+  for (const field of schema.fields) {
+    const value = node.props[field.key] ?? field.defaultValue
+    const fieldErrors = validateField(field, value)
+    errors.push(...fieldErrors.map(e => ({ ...e, field: `${node.type}.${e.field}` })))
+  }
+
+  if (node.children) {
+    for (const child of node.children) {
+      errors.push(...validateNode(child, runtime))
+    }
+  }
+
+  return errors
+}
+
+function insertNodeInList(
+  list: readonly ContentNode[],
+  parentId: string,
+  slot: string,
+  newNode: ContentNode
+): { nextList: readonly ContentNode[]; inserted: boolean } {
+  let inserted = false
+  const nextList = list.map(node => {
+    if (node.id === parentId) {
+      inserted = true
+      const nextChildren = [...(node.children || []), { ...newNode, slot: slot || undefined }]
+      return { ...node, children: nextChildren }
+    }
+    if (node.children) {
+      const res = insertNodeInList(node.children, parentId, slot, newNode)
+      if (res.inserted) {
+        inserted = true
+        return { ...node, children: res.nextList }
+      }
+    }
+    return node
+  })
+  return { nextList, inserted }
 }
 
 /**
@@ -95,6 +148,26 @@ export function createContentTreeStore(
       }))
       notify()
       return []
+    },
+
+    insertNode(parentId, slot, newNode) {
+      const errors = validateNode(newNode, runtime)
+      if (errors.length > 0) return errors
+
+      if (parentId === null) {
+        nodes = [...nodes, { ...newNode, slot: slot || undefined }]
+        notify()
+        return []
+      }
+
+      const { nextList, inserted } = insertNodeInList(nodes, parentId, slot, newNode)
+      if (!inserted) {
+        return [{ field: 'parentId', message: `Parent node "${parentId}" was not found in the tree.` }]
+      }
+
+      nodes = nextList
+      notify()
+      return []
     }
   }
 }
@@ -112,5 +185,10 @@ export function useContentTree(store: ContentTreeStore) {
     [store]
   )
 
-  return { nodes, updateProp }
+  const insertNode = useCallback(
+    (parentId: string | null, slot: string, node: ContentNode) => store.insertNode(parentId, slot, node),
+    [store]
+  )
+
+  return { nodes, updateProp, insertNode }
 }

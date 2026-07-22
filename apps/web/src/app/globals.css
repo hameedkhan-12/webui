@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* ── Aura visual editor packages — Tailwind v4 @source directives.
+   Paths are relative to THIS FILE (apps/web/src/app/globals.css).
+   4 levels up reaches the monorepo root, then into packages/. ────────────── */
+@source "../../../../packages/blocks/src/**/*.{ts,tsx}";
+@source "../../../../packages/renderer/src/**/*.{ts,tsx}";
+
+
 /* ── Aura IDE — CodeMirror overrides ───────────────────── */
 
 /* Make the CodeMirror editor fill its parent perfectly */

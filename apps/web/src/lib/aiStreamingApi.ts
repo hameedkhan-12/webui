@@ -15,8 +15,8 @@ export type StreamingFileUpdate = {
 };
 
 export type StreamingMessage = {
-  type: 'file' | 'status' | 'done' | 'error';
-  data: StreamingFileUpdate | { message: string } | null;
+  type: 'file' | 'status' | 'done' | 'error' | 'tree-op';
+  data: any;
 };
 
 /**

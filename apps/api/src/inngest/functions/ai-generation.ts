@@ -3,6 +3,7 @@
 import { inngest } from '../client';
 import { PrismaClient } from '@webra/database';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { BLOCK_MANIFEST } from '@aura/blocks/manifest';
 
 // Create a prisma instance for use in Inngest functions
 const prisma = new PrismaClient();
@@ -145,11 +146,66 @@ export function buildCodeGenPrompt(prompt: string, context: any): string {
           .join('\n\n')}`
       : '';
 
-  return `You are a world-class principal React / Next.js engineer. The user wants you to build or edit a web application.
+  // Generate serialized blocks manifest for prompt context
+  const blocksContext = BLOCK_MANIFEST.map(item => {
+    const fields = item.schema.fields.map(f => {
+      const opts = f.options ? ` (options: ${f.options.map(o => o.value).join('|')})` : '';
+      return `  - ${f.key}: ${f.type}${opts}${f.required ? ' (required)' : ''} [default: ${JSON.stringify(f.defaultValue)}]`;
+    }).join('\n');
+    const slots = item.meta.slots && item.meta.slots.length > 0
+      ? `Slots: ${item.meta.slots.map(s => s.key).join(', ')}`
+      : '';
+
+    return `* BlockType: "${item.blockType}" ("${item.displayName}")
+  Description: ${item.meta.description}
+  ${slots ? slots + '\n  ' : ''}Fields:
+${fields}`;
+  }).join('\n\n');
+
+  return `You are a world-class principal React / Next.js design engineer. The user wants you to build or edit a web application.
+
+You have access to a set of pre-registered visual blocks that can be composed into a content tree.
+
+AVAILABLE REGISTERED BLOCKS FOR COMPOSING:
+${blocksContext}
 
 User request: "${prompt}"${fileContext}
 
-Return ONLY a valid JSON object in this exact shape — no markdown, no explanation:
+You can choose between TWO response modes based on the user's request:
+
+MODE A: Content Tree Operations (Preferred for layout composition)
+If the user's request maps cleanly to arranging, configuring, inserting, or updating the pre-registered blocks (e.g. adding cards to a grid, changing hero text, creating forms, putting sections together), you MUST respond with "treeOps" array and NO "fileUpdates".
+Return ONLY this exact JSON structure:
+{
+  "message": "A short 1-sentence summary of what you did",
+  "statusLogs": ["Inserted Section", "Added Card inside Grid"],
+  "treeOps": [
+    {
+      "kind": "insert",
+      "parentId": "parent-node-id-string" or null for root-level,
+      "slot": "children",
+      "node": {
+        "id": "unique-stable-id-string",
+        "type": "BlockType",
+        "props": {
+          "propKey": "propValue"
+        },
+        "children": []
+      }
+    },
+    {
+      "kind": "updateProps",
+      "nodeId": "existing-node-id-string",
+      "props": {
+        "propKey": "newPropValue"
+      }
+    }
+  ]
+}
+
+MODE B: Raw File Generation (Fallback for custom code/logic)
+If the user's request CANNOT be achieved by composing the registered blocks (e.g., custom animations, custom utility scripts, third-party library integrations, complex state logic, non-visual code), you MUST fallback to generating full files in "fileUpdates" as usual.
+Return ONLY this exact JSON structure:
 {
   "message": "A short 1-sentence summary of what you did",
   "statusLogs": ["Step 1 done", "Step 2 done"],
@@ -159,42 +215,11 @@ Return ONLY a valid JSON object in this exact shape — no markdown, no explanat
   }
 }
 
-Rules (Bolt.ai Professional Standard):
-1. Visual Excellence & Aesthetics:
-   - Deliver stunning, professional UI out-of-the-box. Avoid simple gray wireframes or basic styling.
-   - Use a gorgeous dark/semi-dark glassmorphism design by default: deep slate/zinc backgrounds (e.g., bg-[#0b0f19] or bg-slate-950), glowing gradients, and ultra-thin borders (border border-white/10).
-   - Use curated color accents: Indigo, Violet, Purple, Amber, Emerald, and Rose.
-   - Implement premium UI typography with clean spacing and smooth hover/active scaling transitions (e.g. transition-all hover:scale-[1.02] active:scale-95).
-   - Use the "lucide-react" package for modern, high-fidelity vector icons. Make sure to import them individually.
-
-2. Architecture & File Structure:
-   - Put main layout/routing in "src/app/page.tsx".
-   - Break down sub-components cleanly and put them under "src/components/" (e.g., "src/components/Sidebar.tsx", "src/components/Dashboard.tsx").
-   - Import sub-components into "src/app/page.tsx" using relative paths (e.g. import { Sidebar } from '../components/Sidebar').
-
-3. Rich Functionality & Interactive State:
-   - NEVER use placeholder text or comments like "todo: implement". Everything must be fully functional.
-   - Provide highly rich, realistic mock data for lists, charts, and statistics.
-   - Make the UI fully interactive! Use React "useState" for filters, tabs, search functionality, modals, adding/deleting list items, and interactive charts/graphs.
-   - Always put "use client" at the very top of components using hooks or click handlers.
-
-4. Critical Version Requirements for WebContainer Compatibility:
-   - If generating or updating package.json, ALWAYS use these exact, pinned versions (do NOT use ranges or "latest"):
-     * "next": "15.4.1"
-     * "react": "18.2.0"
-     * "react-dom": "18.2.0"
-     * "typescript": "5.3.3"
-     * "tailwindcss": "3.4.4"
-     * "@types/react": "18.2.65"
-     * "@types/node": "20.11.5"
-   - Do NOT use "next/headers" or server actions that call headers() or cookies() since they are incompatible with the WebContainer AsyncLocalStorage.
-   - Do NOT use "next/font" (requires Node.js native font subsetting not in WebContainer).
-   - Prefer 'use client' components for all interactive elements.
-
-5. Format & Deliverables:
-   - Return ONLY the exact JSON object described above.
-   - No pre-text or post-text explanation outside the JSON.
-   - All relative paths in "fileUpdates" must contain complete, production-ready, compiling code.`;
+Rules:
+1. NEVER mix "treeOps" and "fileUpdates" in the same response.
+2. For MODE A, ensure all nested nodes generated have a unique, stable, non-random string "id" (e.g. "pricing-section", "pricing-grid", "card-1").
+3. For MODE A, check the schemas of the BlockTypes and ensure all fields are set with correct types matching the schema field definitions.
+4. Return ONLY raw JSON. Do not include markdown code block syntax.`;
 }
 
 export function parseGeminiResponse(
@@ -204,6 +229,7 @@ export function parseGeminiResponse(
   message: string;
   statusLogs: string[];
   fileUpdates: Record<string, string>;
+  treeOps?: any[];
 } {
   try {
     // Strip markdown fences if Gemini wraps the JSON
@@ -228,6 +254,10 @@ export function parseGeminiResponse(
         parsed.fileUpdates && typeof parsed.fileUpdates === 'object'
           ? parsed.fileUpdates
           : {},
+      treeOps:
+        Array.isArray(parsed.treeOps)
+          ? parsed.treeOps
+          : undefined,
     };
   } catch (error) {
     console.error('[ai-generation] Failed to parse Gemini response:', error);

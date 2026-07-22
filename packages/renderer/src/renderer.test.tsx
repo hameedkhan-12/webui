@@ -177,9 +177,65 @@ describe('createContentTreeStore', () => {
     expect(errorsMax.length).toBeGreaterThan(0)
     expect(store.getSnapshot()[0]?.props['count']).toBe(5)
   })
-})
+  })
 
-// ─── useContentTree hook ──────────────────────────────────────────────────────
+  describe('insertNode', () => {
+    const initial: ContentNode[] = [
+      { id: 'n1', type: 'TextBlock', props: { text: 'Hello' } }
+    ]
+
+    it('inserts a node at the root when parentId is null', () => {
+      const store = createContentTreeStore(initial, makeRuntime(TEXT_SCHEMA))
+      const newNode: ContentNode = { id: 'n2', type: 'TextBlock', props: { text: 'New root' } }
+      const errors = store.insertNode(null, 'children', newNode)
+      expect(errors).toHaveLength(0)
+      const snapshot = store.getSnapshot()
+      expect(snapshot).toHaveLength(2)
+      expect(snapshot[1]).toEqual({ ...newNode, slot: 'children' })
+    })
+
+    it('inserts a node as a nested child of parentId', () => {
+      const store = createContentTreeStore(initial, makeRuntime(TEXT_SCHEMA))
+      const newNode: ContentNode = { id: 'n2', type: 'TextBlock', props: { text: 'Child' } }
+      const errors = store.insertNode('n1', 'children', newNode)
+      expect(errors).toHaveLength(0)
+      const snapshot = store.getSnapshot()
+      expect(snapshot[0]?.children).toHaveLength(1)
+      expect(snapshot[0]?.children?.[0]).toEqual({ ...newNode, slot: 'children' })
+    })
+
+    it('rejects insertion of unregistered block types', () => {
+      const store = createContentTreeStore(initial, makeRuntime(undefined)) // makeRuntime returns undefined -> no schema
+      const newNode: ContentNode = { id: 'n2', type: 'Unregistered', props: {} }
+      const errors = store.insertNode(null, 'children', newNode)
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.field).toBe('type')
+      expect(store.getSnapshot()).toHaveLength(1)
+    })
+
+    it('rejects insertion when fields fail validation', () => {
+      const requiredSchema: ComponentSchema = {
+        key: 'TextBlock',
+        fields: [{ key: 'text', type: 'text', label: 'Text', required: true }]
+      }
+      const store = createContentTreeStore(initial, makeRuntime(requiredSchema))
+      const newNode: ContentNode = { id: 'n2', type: 'TextBlock', props: {} } // missing required 'text' prop
+      const errors = store.insertNode(null, 'children', newNode)
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.field).toBe('TextBlock.text')
+      expect(store.getSnapshot()).toHaveLength(1)
+    })
+
+    it('returns an error if parentId is not found', () => {
+      const store = createContentTreeStore(initial, makeRuntime(TEXT_SCHEMA))
+      const newNode: ContentNode = { id: 'n2', type: 'TextBlock', props: { text: 'New' } }
+      const errors = store.insertNode('nonexistent', 'children', newNode)
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.field).toBe('parentId')
+      expect(store.getSnapshot()).toHaveLength(1)
+    })
+  })
+})
 
 describe('useContentTree', () => {
   const initial: ContentNode[] = [

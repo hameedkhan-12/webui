@@ -39,3 +39,5 @@ export { BUILT_IN_BLOCKS, BLOCK_DEFINITIONS_BY_KEY } from './registry.js'
 
 export { bootstrapAura, __resetAuraRuntimeForTests } from './bootstrap.js'
 export type { AuraRuntime } from './bootstrap.js'
+export { BLOCK_MANIFEST } from './manifest.js'
+export type { BlockManifestItem } from './manifest.js'

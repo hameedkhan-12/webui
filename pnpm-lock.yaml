@@ -48,6 +48,12 @@ importers:
 
   apps/api:
     dependencies:
+      '@aura/blocks':
+        specifier: workspace:*
+        version: link:../../packages/blocks
+      '@aura/schema-engine':
+        specifier: workspace:*
+        version: link:../../packages/schema-engine
       '@aws-sdk/client-s3':
         specifier: ^3.1007.0
         version: 3.1007.0
