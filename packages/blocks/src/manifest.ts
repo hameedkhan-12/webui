@@ -48,35 +48,44 @@ const buttonSchema: ComponentSchema = {
 const textBlockMeta: ComponentMeta = {
     name: 'TextBlock',
     displayName: 'Text Block',
-    description: 'A text block component',
+    description: 'A generic text element rendered as a configurable HTML tag.',
     icon: 'text',
     category: 'typography',
     tags: ['typography', 'text'],
     slots: [],
-    variants: ['default', 'lead', 'muted'],
+    variants: [],
     events: [],
     permissions: [],
-    documentation: 'Use this text block for paragraphs, headings, or other text contents.',
-    aiHints: ['Use lead variant for large intro text, muted for secondary/small captions.'],
+    documentation: 'Use this text block for paragraphs, headings, labels, or other text content.',
+    aiHints: ['Use tag h1-h3 for headings, p for body copy, span/label for inline text.'],
     schemaKey: 'TextBlock'
 };
 
+// NOTE: these fields MUST match TextBlock.tsx's real props (tag, text) -- this
+// manifest is what the AI is told is editable, and what SchemaInspectorPanel
+// renders controls for. A field here with no matching prop on the component
+// silently does nothing when edited.
 const textBlockSchema: ComponentSchema = {
     key: 'TextBlock',
     fields: [
-        { key: 'content', type: 'textarea', label: 'Content', required: true, defaultValue: 'Edit this text' },
         {
-            key: 'variant',
+            key: 'tag',
             type: 'select',
-            label: 'Variant',
-            defaultValue: 'default',
+            label: 'HTML Tag',
+            defaultValue: 'p',
             options: [
-                { label: 'Default', value: 'default' },
-                { label: 'Lead', value: 'lead' },
-                { label: 'Muted', value: 'muted' }
+                { label: 'Paragraph', value: 'p' },
+                { label: 'Heading 1', value: 'h1' },
+                { label: 'Heading 2', value: 'h2' },
+                { label: 'Heading 3', value: 'h3' },
+                { label: 'Heading 4', value: 'h4' },
+                { label: 'Heading 5', value: 'h5' },
+                { label: 'Heading 6', value: 'h6' },
+                { label: 'Span', value: 'span' },
+                { label: 'Label', value: 'label' }
             ]
         },
-        { key: 'color', type: 'color', label: 'Text Color', defaultValue: '' }
+        { key: 'text', type: 'textarea', label: 'Text', required: true, defaultValue: 'Text block' }
     ]
 };
 

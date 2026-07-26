@@ -298,6 +298,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@aura/ast-engine':
+        specifier: workspace:*
+        version: link:../../packages/ast-engine
       '@aura/blocks':
         specifier: workspace:*
         version: link:../../packages/blocks
@@ -395,10 +398,22 @@ importers:
 
   packages/ast-engine:
     dependencies:
+      '@babel/parser':
+        specifier: ^7.24.5
+        version: 7.29.7
+      '@babel/traverse':
+        specifier: ^7.24.5
+        version: 7.28.6
+      '@babel/types':
+        specifier: ^7.24.5
+        version: 7.29.7
       '@repo/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
+      '@types/babel__traverse':
+        specifier: ^7.20.6
+        version: 7.28.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

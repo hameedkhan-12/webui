@@ -18,10 +18,14 @@
     "lint": "echo \"lint: not configured yet\""
   },
   "dependencies": {
-    "@repo/shared": "workspace:*"
+    "@repo/shared": "workspace:*",
+    "@babel/parser": "^7.24.5",
+    "@babel/traverse": "^7.24.5",
+    "@babel/types": "^7.24.5"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "@types/babel__traverse": "^7.20.6"
   }
 }

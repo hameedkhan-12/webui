@@ -1,88 +1,158 @@
+// packages/ast-engine/src/ast.parser.ts
 /**
  * ASTParser — read path.
  *
- * Operates on raw TSX source strings only.
- * No filesystem I/O. No side effects.
+ * Operates on raw TSX source strings only. No filesystem I/O. No side effects.
+ *
+ * IMPORTANT: this is a REAL Babel-based parser (@babel/parser + @babel/traverse),
+ * not a regex/string scanner. The previous implementation of this file matched
+ * JSX tags with hand-written regex, which breaks on nested elements of the same
+ * tag name, template literals, and anything beyond trivial markup. This version
+ * is correct for arbitrary valid TSX because it actually parses the source into
+ * an AST and walks it structurally.
  */
+
+import { parse } from '@babel/parser'
+// @babel/traverse's CJS/ESM interop is inconsistent across bundlers -- this
+// normalizes both shapes, matching the pattern already used in
+// packages/plugins/src/vite-plugin-aura.ts (the one place in this repo that
+// already uses real Babel correctly).
+import * as traverseModule from '@babel/traverse'
+import * as t from '@babel/types'
+import type { NodePath } from '@babel/traverse'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const traverse = ((traverseModule as any).default ?? traverseModule) as typeof import('@babel/traverse').default
 
 export interface ParsedNode {
   readonly auraId: string
   /** 1-indexed line number of the opening tag */
   readonly line: number
-  /** Raw opening-tag text, e.g. `<Button data-aura-id="abc" ... >` */
+  /** Raw opening-tag text, exactly as written in the original source */
   readonly raw: string
 }
 
-/**
- * Build a regex that matches a JSX opening tag containing the given auraId.
- * Handles self-closing and normal tags.
- */
-function buildTagRegex(auraId: string): RegExp {
-  // Escape special regex chars in the auraId (UUIDs are safe, but be defensive)
-  const escaped = auraId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Match any opening tag that contains data-aura-id="<auraId>"
-  return new RegExp(
-    `<[A-Za-z][A-Za-z0-9.]*(?:\\s[^>]*?)?\\sdata-aura-id="${escaped}"(?:\\s[^>]*)?>`,
-    's'
-  )
-}
+const PARSE_PLUGINS = [
+  'jsx',
+  'typescript',
+  ['decorators', { decoratorsBeforeExport: false }],
+  'classProperties',
+  'classPrivateProperties',
+  'classPrivateMethods',
+  'logicalAssignment',
+  'asyncGenerators',
+  'bigInt',
+  'optionalChaining',
+  'nullishCoalescingOperator',
+] as const
 
 /**
- * Count the number of newlines before `index` in `source` to get 1-indexed line.
+ * Parse TSX source into a Babel AST. Returns null (rather than throwing) on
+ * invalid/unparseable source, so callers can treat "can't parse" the same way
+ * they'd treat "node not found" -- fail soft, never crash the caller.
  */
-function lineAt(source: string, index: number): number {
-  let count = 1
-  for (let i = 0; i < index; i++) {
-    if (source[i] === '\n') count++
+export function parseSource(source: string) {
+  try {
+    return parse(source, {
+      sourceType: 'module',
+      plugins: PARSE_PLUGINS as unknown as Parameters<typeof parse>[1] extends { plugins: infer P } ? P : never,
+    })
+  } catch {
+    return null
   }
-  return count
+}
+
+export interface FoundElement {
+  readonly path: NodePath<t.JSXOpeningElement>
+  readonly ast: ReturnType<typeof parse>
 }
 
 /**
- * Find the first JSX opening tag in `source` that carries the given `data-aura-id`.
- * Returns null if not found.
+ * Find the JSXOpeningElement whose `data-id` attribute matches `auraId`.
+ * Internal helper shared by every parser/writer function in this package --
+ * this is the ONE place "how do we locate a node" is implemented.
  */
+export function findOpeningElement(source: string, auraId: string): FoundElement | null {
+  const ast = parseSource(source)
+  if (!ast) return null
+
+  let found: NodePath<t.JSXOpeningElement> | null = null
+
+  traverse(ast, {
+    JSXOpeningElement(path) {
+      if (found) return
+      const hasMatchingId = path.node.attributes.some(
+        (attr): attr is t.JSXAttribute =>
+          t.isJSXAttribute(attr) &&
+          t.isJSXIdentifier(attr.name) &&
+          attr.name.name === 'data-id' &&
+          t.isStringLiteral(attr.value) &&
+          attr.value.value === auraId
+      )
+      if (hasMatchingId) {
+        found = path
+      }
+    },
+  })
+
+  return found ? { path: found, ast } : null
+}
+
 export function findNodeByAuraId(source: string, auraId: string): ParsedNode | null {
-  const regex = buildTagRegex(auraId)
-  const match = regex.exec(source)
-  if (!match) return null
+  const result = findOpeningElement(source, auraId)
+  if (!result) return null
 
-  return {
-    auraId,
-    line: lineAt(source, match.index),
-    raw: match[0],
-  }
+  const node = result.path.node
+  const line = node.loc?.start.line ?? 0
+  const raw =
+    node.start != null && node.end != null ? source.slice(node.start, node.end) : ''
+
+  return { auraId, line, raw }
 }
 
 /**
  * Extract all JSX props from the tag matching `auraId` as a key→value map.
- * - Boolean props (bare attribute names) map to `true`.
- * - String props map to their string value.
- * - Ignores `data-aura-id` itself.
+ * - Bare boolean props (`disabled`) map to `true`.
+ * - String literal props map to their string value.
+ * - Numeric/boolean literal expression props ({42}, {true}) map to their real value.
+ * - Anything more complex (function calls, ternaries, identifiers) is returned
+ *   as its raw source text, since we can't reduce it to a plain JS value
+ *   without evaluating code -- callers must treat these as read-only/opaque.
  */
 export function extractProps(source: string, auraId: string): Record<string, unknown> {
-  const node = findNodeByAuraId(source, auraId)
-  if (!node) return {}
+  const result = findOpeningElement(source, auraId)
+  if (!result) return {}
 
   const props: Record<string, unknown> = {}
-  // Strip leading tag name to get the attribute section
-  const attrSection = node.raw.replace(/^<[A-Za-z][A-Za-z0-9.]*/, '').replace(/>$/, '')
 
-  // Match key="value", key={value}, or bare key
-  const attrRegex = /([A-Za-z_][A-Za-z0-9_-]*)(?:=(?:"([^"]*)"|'([^']*)'|\{([^}]*)\}))?/g
-  let m: RegExpExecArray | null
-  while ((m = attrRegex.exec(attrSection)) !== null) {
-    const key = m[1]!
-    if (key === 'data-aura-id') continue
-    if (m[2] !== undefined) {
-      props[key] = m[2]              // "string value"
-    } else if (m[3] !== undefined) {
-      props[key] = m[3]              // 'string value'
-    } else if (m[4] !== undefined) {
-      // {expression} — store as raw string
-      props[key] = m[4].trim()
-    } else {
-      props[key] = true              // bare boolean prop
+  for (const attr of result.path.node.attributes) {
+    if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue
+    const key = attr.name.name
+    if (key === 'data-id') continue
+
+    if (attr.value == null) {
+      props[key] = true
+      continue
+    }
+
+    if (t.isStringLiteral(attr.value)) {
+      props[key] = attr.value.value
+      continue
+    }
+
+    if (t.isJSXExpressionContainer(attr.value)) {
+      const expr = attr.value.expression
+      if (t.isStringLiteral(expr)) {
+        props[key] = expr.value
+      } else if (t.isNumericLiteral(expr)) {
+        props[key] = expr.value
+      } else if (t.isBooleanLiteral(expr)) {
+        props[key] = expr.value
+      } else if (expr.start != null && expr.end != null) {
+        // Opaque expression (call, ternary, identifier, template literal...) --
+        // return the raw source text rather than guessing at a value.
+        props[key] = source.slice(expr.start, expr.end)
+      }
     }
   }
 
@@ -91,7 +161,9 @@ export function extractProps(source: string, auraId: string): Record<string, unk
 
 /**
  * Extract the Tailwind class list from `className` of the node matching `auraId`.
- * Returns an empty array if no `className` prop is found.
+ * Returns an empty array if `className` is absent OR is a non-string-literal
+ * expression (e.g. wrapped in cn()/clsx()) -- use extractClassNameInfo (in
+ * ast.writer.ts) if you need to handle the cn()/clsx() case specifically.
  */
 export function extractClasses(source: string, auraId: string): string[] {
   const props = extractProps(source, auraId)

@@ -10,6 +10,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
+    "@aura/ast-engine": "workspace:*",
     "@aura/blocks": "workspace:*",
     "@aura/component-registry": "workspace:*",
     "@aura/kernel": "workspace:*",

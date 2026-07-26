@@ -1,3 +1,4 @@
+// apps/api/src/ai/ai.service.ts
 // apps/api/src/modules/ai/ai.service.ts
 
 import {
@@ -166,29 +167,6 @@ export class AiService {
 
       // Parse final output to make sure it's complete & valid
       const parsedResult = parseGeminiResponse(fullText, dto.prompt);
-
-      if (parsedResult.treeOps) {
-        const { validateTreeOperations } = await import('./tree-op-validator.js');
-        const validation = validateTreeOperations(parsedResult.treeOps);
-        if (validation.valid) {
-          sendEvent('tree-op', { ops: validation.ops });
-
-          // Update job status in DB
-          await this.prisma.aIGenerationJob.update({
-            where: { id: job.id },
-            data: {
-              status: JobStatus.COMPLETED,
-              result: parsedResult as any,
-            },
-          });
-
-          sendEvent('done', { message: parsedResult.message || 'Generation complete!' });
-          return;
-        } else {
-          console.warn('[AiService] tree-op validation failed:', validation.reason);
-          sendEvent('status', { message: `⚠️ Tree-op validation failed: ${validation.reason}. Falling back to file generation...` });
-        }
-      }
 
       // Ensure all files in parsed result are sent
       for (const [path, content] of Object.entries(parsedResult.fileUpdates)) {
