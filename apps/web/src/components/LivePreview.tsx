@@ -182,6 +182,8 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
           text: data.text,
           classes: data.classes,
           filePath: APP_ENTRY,
+          computedStyle: data.computedStyle,
+          rect: data.rect,
         });
         onAddConsoleLine(`Selected <${data.tagName.toLowerCase()}>`, "info");
       } else if (data.type === "COMPONENT_DROPPED") {
@@ -204,7 +206,27 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+
+    // ── Event bridge: StylePanel / LayersPanel → iframe ──────────────────────
+    // Any component can dispatch window.dispatchEvent(new CustomEvent('aura:post-to-preview', { detail: {...} }))
+    // and LivePreview will forward the detail to the preview iframe instantly.
+    const handleBridgeEvent = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail;
+        const iframe = iframeRef.current;
+        if (iframe?.contentWindow && detail) {
+          iframe.contentWindow.postMessage(detail, '*');
+        }
+      } catch {
+        // ignore cross-origin
+      }
+    };
+    window.addEventListener('aura:post-to-preview', handleBridgeEvent);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener('aura:post-to-preview', handleBridgeEvent);
+    };
   }, [
     onSelectElement,
     onAddConsoleLine,
@@ -225,17 +247,15 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   window.__auraInspectorLoaded = true;
   window.__designMode = true;
 
+  // ── Console capture ──────────────────────────────────────────────────────
   var captureLog = function(level) {
     var original = console[level];
     return function() {
       var args = Array.prototype.slice.call(arguments);
-      if (typeof original === 'function') {
-        try { original.apply(console, args); } catch(err) {}
-      }
+      if (typeof original === 'function') { try { original.apply(console, args); } catch(err) {} }
       try {
         window.parent.postMessage({
-          type: 'IFRAME_CONSOLE',
-          level: level,
+          type: 'IFRAME_CONSOLE', level: level,
           message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
         }, '*');
       } catch(e) {}
@@ -245,72 +265,215 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   console.error = captureLog('error');
   console.warn  = captureLog('warn');
 
+  // ── Error capture ────────────────────────────────────────────────────────
   var originalOnError = window.onerror;
   window.onerror = function(message, source, lineno, colno, error) {
-    if (typeof originalOnError === 'function') {
-      try { originalOnError.apply(window, arguments); } catch(err) {}
-    }
-    try {
-      window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
-    } catch(e) {}
+    if (typeof originalOnError === 'function') { try { originalOnError.apply(window, arguments); } catch(err) {} }
+    try { window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*'); } catch(e) {}
     return true;
   };
 
-  var style = document.createElement('style');
-  style.id = 'aura-inspector-styles';
-  style.innerHTML = [
-    '.designer-hover { outline: 2px dashed #a855f7 !important; outline-offset: -2px !important; cursor: pointer !important; }',
-    '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; box-shadow: 0 0 0 2px rgba(168,85,247,0.3) !important; }'
+  // ── Styles ───────────────────────────────────────────────────────────────
+  var styleEl = document.createElement('style');
+  styleEl.id = 'aura-inspector-styles';
+  styleEl.innerHTML = [
+    '.designer-hover { outline: 2px dashed rgba(168,85,247,0.7) !important; outline-offset: -2px !important; cursor: crosshair !important; }',
+    '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; box-shadow: 0 0 0 4px rgba(168,85,247,0.15) !important; }',
+    '.designer-hover-label { position:fixed; background:#a855f7; color:#fff; font:bold 10px/1 system-ui,sans-serif; padding:2px 5px; border-radius:3px; pointer-events:none; z-index:2147483647; white-space:nowrap; }',
+    '.designer-breadcrumb { position:fixed; bottom:8px; left:8px; background:rgba(10,10,10,0.85); color:#a78bfa; font:10px/1.4 monospace; padding:4px 8px; border-radius:4px; pointer-events:none; z-index:2147483647; backdrop-filter:blur(6px); max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }',
   ].join('\\n');
-  
+
   var injectStyle = function() {
-    if (document.head && !document.getElementById('aura-inspector-styles')) {
-      document.head.appendChild(style);
-    }
+    if (document.head && !document.getElementById('aura-inspector-styles')) document.head.appendChild(styleEl);
   };
   if (document.head) { injectStyle(); }
   else { window.addEventListener('DOMContentLoaded', injectStyle); }
 
   try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
 
-  window.addEventListener('message', function(e) {
-    if (!e.data || typeof e.data !== 'object') return;
-    if (e.data.type === 'SET_DESIGN_MODE') {
-      window.__designMode = !!e.data.enabled;
-      if (!window.__designMode) {
-        document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
-      }
-    }
-    if (e.data.type === 'INJECT_INSPECTOR') {
-      if (typeof e.data.script === 'string') {
-        try { (0, eval)(e.data.script); } catch(err) {}
-      }
-      try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(err) {}
-    }
-    if (e.data.type === 'SELECT_ELEMENT') {
-      document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
-      if (e.data.id) {
-        var el = document.querySelector('[data-aura-id="' + e.data.id + '"]') || document.querySelector('[data-id="' + e.data.id + '"]');
-        if (el) {
-          el.classList.add('designer-selected');
-        }
-      }
-    }
-  });
-
-  var SKIP_TAGS = new Set(['HTML', 'HEAD', 'BODY', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'DEFS', 'SYMBOL', 'G', 'USE']);
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  var SKIP_TAGS = new Set(['HTML','HEAD','BODY','SCRIPT','STYLE','NOSCRIPT','SVG','PATH','DEFS','SYMBOL','G','USE']);
   var idCounter = 5000;
 
   function getCleanId(target) {
     var id = target.getAttribute('data-aura-id') || target.getAttribute('data-id');
     if (!id) {
-      id = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2, 7);
+      id = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2,7);
       target.setAttribute('data-aura-id', id);
       target.setAttribute('data-id', id);
     }
     return id;
   }
 
+  function findById(id) {
+    return document.querySelector('[data-aura-id="' + id + '"]') ||
+           document.querySelector('[data-id="' + id + '"]');
+  }
+
+  function getComputedStyleSnapshot(el) {
+    var cs = window.getComputedStyle(el);
+    return {
+      width: cs.width, height: cs.height,
+      minWidth: cs.minWidth, maxWidth: cs.maxWidth,
+      minHeight: cs.minHeight, maxHeight: cs.maxHeight,
+      position: cs.position, top: cs.top, right: cs.right, bottom: cs.bottom, left: cs.left, zIndex: cs.zIndex,
+      marginTop: cs.marginTop, marginRight: cs.marginRight, marginBottom: cs.marginBottom, marginLeft: cs.marginLeft,
+      paddingTop: cs.paddingTop, paddingRight: cs.paddingRight, paddingBottom: cs.paddingBottom, paddingLeft: cs.paddingLeft,
+      display: cs.display, flexDirection: cs.flexDirection, flexWrap: cs.flexWrap,
+      justifyContent: cs.justifyContent, alignItems: cs.alignItems, gap: cs.gap,
+      gridTemplateColumns: cs.gridTemplateColumns, gridTemplateRows: cs.gridTemplateRows,
+      backgroundColor: cs.backgroundColor, backgroundImage: cs.backgroundImage,
+      opacity: cs.opacity, borderWidth: cs.borderWidth, borderStyle: cs.borderStyle,
+      borderColor: cs.borderColor, borderRadius: cs.borderRadius, boxShadow: cs.boxShadow,
+      fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight,
+      fontStyle: cs.fontStyle, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing,
+      textAlign: cs.textAlign, color: cs.color, textDecoration: cs.textDecoration,
+      transform: cs.transform, filter: cs.filter, backdropFilter: cs.backdropFilter,
+      mixBlendMode: cs.mixBlendMode, overflow: cs.overflow, overflowX: cs.overflowX,
+      overflowY: cs.overflowY, cursor: cs.cursor,
+    };
+  }
+
+  function getAncestors(el) {
+    var parts = [];
+    var node = el;
+    while (node && node !== document.body && parts.length < 5) {
+      var tag = node.tagName ? node.tagName.toLowerCase() : '';
+      if (tag && tag !== 'html') {
+        var id = node.getAttribute('data-id') || node.getAttribute('data-aura-id') || node.id || '';
+        parts.unshift(id ? tag + '#' + id : tag);
+      }
+      node = node.parentElement;
+    }
+    return parts.join(' › ');
+  }
+
+  // ── Hover label & breadcrumb ─────────────────────────────────────────────
+  var hoverLabel = null;
+  var breadcrumb = null;
+
+  function ensureHoverLabel() {
+    if (!hoverLabel) {
+      hoverLabel = document.createElement('div');
+      hoverLabel.className = 'designer-hover-label';
+      document.body.appendChild(hoverLabel);
+    }
+    if (!breadcrumb) {
+      breadcrumb = document.createElement('div');
+      breadcrumb.className = 'designer-breadcrumb';
+      document.body.appendChild(breadcrumb);
+    }
+  }
+
+  function showHoverLabel(el) {
+    ensureHoverLabel();
+    var rect = el.getBoundingClientRect();
+    var w = Math.round(rect.width);
+    var h = Math.round(rect.height);
+    hoverLabel.textContent = w + ' × ' + h;
+    hoverLabel.style.display = 'block';
+    // position above element or below if near top
+    var top = rect.top - 20;
+    if (top < 4) top = rect.bottom + 4;
+    hoverLabel.style.top = top + 'px';
+    hoverLabel.style.left = rect.left + 'px';
+    breadcrumb.textContent = getAncestors(el);
+    breadcrumb.style.display = 'block';
+  }
+
+  function hideHoverLabel() {
+    if (hoverLabel) hoverLabel.style.display = 'none';
+    if (breadcrumb) breadcrumb.style.display = 'none';
+  }
+
+  // ── DOM Tree builder ─────────────────────────────────────────────────────
+  function buildDomTree(el, depth) {
+    if (!el || !el.tagName) return null;
+    var tag = el.tagName.toLowerCase();
+    if (['script','style','head','noscript'].indexOf(tag) >= 0) return null;
+    var id = el.getAttribute('data-id') || el.getAttribute('data-aura-id') || '';
+    var cls = Array.prototype.slice.call(el.classList).filter(function(c) {
+      return c !== 'designer-hover' && c !== 'designer-selected';
+    });
+    var children = [];
+    if (depth < 10) {
+      Array.prototype.forEach.call(el.children, function(child) {
+        var node = buildDomTree(child, depth + 1);
+        if (node) children.push(node);
+      });
+    }
+    return { id: id, tag: tag, classes: cls, children: children, depth: depth };
+  }
+
+  // ── Inbound message handlers ─────────────────────────────────────────────
+  window.addEventListener('message', function(e) {
+    if (!e.data || typeof e.data !== 'object') return;
+    var d = e.data;
+
+    if (d.type === 'SET_DESIGN_MODE') {
+      window.__designMode = !!d.enabled;
+      if (!window.__designMode) {
+        document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
+        hideHoverLabel();
+      }
+    }
+
+    if (d.type === 'INJECT_INSPECTOR') {
+      if (typeof d.script === 'string') { try { (0, eval)(d.script); } catch(err) {} }
+      try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(err) {}
+    }
+
+    if (d.type === 'SELECT_ELEMENT') {
+      document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
+      if (d.id) {
+        var el = findById(d.id);
+        if (el) el.classList.add('designer-selected');
+      }
+    }
+
+    if (d.type === 'HOVER_ELEMENT') {
+      document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
+      if (d.id) {
+        var el = findById(d.id);
+        if (el) { el.classList.add('designer-hover'); showHoverLabel(el); }
+      } else { hideHoverLabel(); }
+    }
+
+    if (d.type === 'APPLY_STYLE') {
+      if (d.id && d.property) {
+        var el = findById(d.id);
+        if (el) {
+          // camelCase or kebab-case — support both
+          var prop = d.property.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
+          el.style[prop] = d.value || '';
+        }
+      }
+    }
+
+    if (d.type === 'APPLY_CLASS') {
+      if (d.id) {
+        var el = findById(d.id);
+        if (el) {
+          (d.remove || []).forEach(function(c) { el.classList.remove(c); });
+          (d.add || []).forEach(function(c) { el.classList.add(c); });
+        }
+      }
+    }
+
+    if (d.type === 'SET_TEXT') {
+      if (d.id) {
+        var el = findById(d.id);
+        if (el && d.text !== undefined) el.innerText = d.text;
+      }
+    }
+
+    if (d.type === 'GET_DOM_TREE') {
+      var tree = buildDomTree(document.body, 0);
+      try { window.parent.postMessage({ type: 'DOM_TREE_SNAPSHOT', tree: tree }, '*'); } catch(e) {}
+    }
+  });
+
+  // ── Pointer event listeners ──────────────────────────────────────────────
   window.addEventListener('mouseover', function(e) {
     if (!window.__designMode) return;
     var target = e.target;
@@ -319,13 +482,13 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       if (x !== target) x.classList.remove('designer-hover');
     });
     target.classList.add('designer-hover');
+    showHoverLabel(target);
   }, true);
 
   window.addEventListener('mouseout', function(e) {
     if (!window.__designMode) return;
-    if (e.target && e.target.classList) {
-      e.target.classList.remove('designer-hover');
-    }
+    if (e.target && e.target.classList) e.target.classList.remove('designer-hover');
+    hideHoverLabel();
   }, true);
 
   window.addEventListener('click', function(e) {
@@ -335,19 +498,19 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
     e.preventDefault();
     e.stopPropagation();
-    if (typeof e.stopImmediatePropagation === 'function') {
-      e.stopImmediatePropagation();
-    }
+    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
 
     document.querySelectorAll('.designer-selected, .designer-hover').forEach(function(x) {
       x.classList.remove('designer-selected', 'designer-hover');
     });
     target.classList.add('designer-selected');
+    hideHoverLabel();
 
     var id = getCleanId(target);
     var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
       return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
+    var rect = target.getBoundingClientRect();
 
     try {
       window.parent.postMessage({
@@ -355,7 +518,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         id: id,
         tagName: target.tagName,
         text: (target.innerText || target.textContent || '').trim().slice(0, 200),
-        classes: classList
+        classes: classList,
+        computedStyle: getComputedStyleSnapshot(target),
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       }, '*');
     } catch(err) {}
   }, true);
@@ -782,7 +947,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                     type: 'ELEMENT_SELECTED',
                     id: el.getAttribute('data-id'),
                     tagName: el.tagName,
-                    text: el.innerText,
+                    text: (el.children && el.children.length === 0) ? (el.innerText || el.textContent || '').trim().slice(0, 200) : undefined,
                     classes: Array.from(el.classList).filter(function(c) { return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover'; })
                   }, '*');
                 });

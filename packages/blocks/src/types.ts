@@ -29,3 +29,17 @@ export interface TextBlockProps extends BlockProps {
   tag?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" | "span" | "label";
   text?: string;
 }
+
+export interface BlockDefinition<P = BlockProps> {
+  blockType: string;
+  displayName: string;
+  category: string;
+  defaultProps: Record<string, any>;
+  meta: any;
+  schema: any;
+  component: React.ComponentType<P>;
+}
+
+
+
+

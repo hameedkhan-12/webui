@@ -1,5 +1,5 @@
 import { backendFetch } from './apiClient';
-import type { ContentNode } from '@aura/renderer';
+import type { ContentNode } from '@repo/shared';
 
 export async function fetchContentTree(projectId: string, token?: string | null): Promise<ContentNode[] | null> {
   try {

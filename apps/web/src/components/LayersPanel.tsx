@@ -1,20 +1,15 @@
 "use client";
 
 /**
- * LayersPanel — Builder.io-style DOM tree viewer.
+ * LayersPanel — Onlook/Builder-style DOM tree viewer.
  *
- * Architecture (mirrors Builder.io's approach):
- *  1. **Static parse**: Parses the open JSX/TSX source to build a component
- *     tree (like Builder reads its JSON model). Shows element tags + class names.
- *  2. **Live sync via postMessage**: When the inspector runtime assigns
- *     `data-id` to elements, our INSPECTOR_SCRIPT sends `DOM_TREE_SNAPSHOT`
- *     back to the parent on demand. This gives us live, rendered positions.
- *  3. **Bidirectional selection**: Clicking a layer highlights it in the
- *     canvas; clicking in the canvas highlights it here.
+ * Support dual modes:
+ *  1. Live DOM tree mode (in Design Mode via postMessage DOM_TREE_SNAPSHOT)
+ *  2. Static JSX parse mode (fallback when preview is offline or design mode is off)
  */
 
 import React from "react";
-import { ChevronRight, ChevronDown, Search, Layers } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, Layers, RefreshCw } from "lucide-react";
 import { WorkspaceFiles, SelectedElement } from "@repo/shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,17 +20,22 @@ interface LayerNode {
   classes: string[];
   dataId?: string;
   children: LayerNode[];
-  selfClosing: boolean;
+  selfClosing?: boolean;
   depth: number;
 }
 
-// ─── JSX Source Parser ────────────────────────────────────────────────────────
-// Parses JSX/TSX source lines to build a layer tree.
-// Strategy: track indent level of opening tags, build parent-child from indentation.
+// ─── Static JSX Source Parser Fallback ────────────────────────────────────────
 
 const SKIP_TAGS = new Set([
-  "React", "Fragment", "Suspense", "ErrorBoundary",
-  "style", "script", "head", "meta", "link",
+  "React",
+  "Fragment",
+  "Suspense",
+  "ErrorBoundary",
+  "style",
+  "script",
+  "head",
+  "meta",
+  "link",
 ]);
 
 function parseJSXToLayers(source: string): LayerNode[] {
@@ -45,11 +45,10 @@ function parseJSXToLayers(source: string): LayerNode[] {
   let idCounter = 0;
 
   for (const rawLine of lines) {
-    const indent = rawLine.search(/\S/); // first non-space char index
+    const indent = rawLine.search(/\S/);
     if (indent < 0) continue;
     const line = rawLine.trim();
 
-    // Skip comments, imports, type declarations
     if (
       line.startsWith("//") ||
       line.startsWith("/*") ||
@@ -61,33 +60,30 @@ function parseJSXToLayers(source: string): LayerNode[] {
       line.startsWith("return") ||
       line.startsWith("interface ") ||
       line.startsWith("type ")
-    ) continue;
+    )
+      continue;
 
-    // Match opening JSX tag: <TagName or <tag
     const openMatch = line.match(/^<([A-Za-z][A-Za-z0-9.]*)/);
     if (!openMatch) continue;
 
     const tag = openMatch[1];
     if (SKIP_TAGS.has(tag)) continue;
 
-    // Extract className
     const classMatch =
       line.match(/className=["']([^"']*)["']/) ||
       line.match(/className=\{`([^`]*)`\}/) ||
       line.match(/className=\{["']([^"']*)["']\}/);
     const classes = classMatch
-      ? classMatch[1].split(/\s+/).filter(Boolean).slice(0, 6) // cap at 6 classes
+      ? classMatch[1].split(/\s+/).filter(Boolean).slice(0, 6)
       : [];
 
-    // Extract data-id
     const dataIdMatch = line.match(/data-id=["']([^"']*)["']/);
     const dataId = dataIdMatch?.[1];
 
-    // Is self-closing?
     const selfClosing = line.endsWith("/>") || line.includes("/>");
 
     const node: LayerNode = {
-      id: `layer-${idCounter++}`,
+      id: dataId || `layer-${idCounter++}`,
       tag,
       classes,
       dataId,
@@ -96,7 +92,6 @@ function parseJSXToLayers(source: string): LayerNode[] {
       depth: indent,
     };
 
-    // Pop stack entries that are at same or shallower indent
     while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
       stack.pop();
     }
@@ -113,6 +108,23 @@ function parseJSXToLayers(source: string): LayerNode[] {
   }
 
   return roots;
+}
+
+// Convert iframe DOM_TREE_SNAPSHOT message into LayerNode format
+function domSnapshotToLayers(rawNode: any, depth = 0): LayerNode | null {
+  if (!rawNode || !rawNode.tag) return null;
+  const children: LayerNode[] = (rawNode.children || [])
+    .map((c: any) => domSnapshotToLayers(c, depth + 1))
+    .filter(Boolean);
+
+  return {
+    id: rawNode.id || `dom-${Math.random().toString(36).substring(2, 7)}`,
+    tag: rawNode.tag,
+    classes: rawNode.classes || [],
+    dataId: rawNode.id,
+    children,
+    depth,
+  };
 }
 
 // ─── Layer Row Component ──────────────────────────────────────────────────────
@@ -136,76 +148,61 @@ const LayerRow: React.FC<LayerRowProps> = ({
   onSelect,
   onToggleExpand,
 }) => {
-  const isSelected = selectedId === node.dataId || selectedId === node.id;
-  const isExpanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
+  const isExpanded = expandedIds.has(node.id);
+  const isSelected = selectedId === node.dataId || selectedId === node.id;
 
-  // Filter by search
-  const label = node.tag + (node.classes.length > 0 ? "." + node.classes.join(".") : "");
-  if (searchQuery && !label.toLowerCase().includes(searchQuery.toLowerCase())) {
-    // Still render children in case they match
-    if (!node.children.some(c => JSON.stringify(c).toLowerCase().includes(searchQuery.toLowerCase()))) {
-      return null;
-    }
+  if (
+    searchQuery &&
+    !node.tag.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    !node.classes.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase())) &&
+    !node.dataId?.toLowerCase().includes(searchQuery.toLowerCase())
+  ) {
+    return null;
   }
 
   return (
     <>
       <div
-        role="button"
-        tabIndex={0}
         onClick={() => onSelect(node)}
-        onKeyDown={(e) => e.key === "Enter" && onSelect(node)}
-        className={`flex items-center gap-0.5 h-6 cursor-pointer transition-colors text-[11px] font-mono group ${
+        className={`group flex items-center h-6 px-2 text-[11px] cursor-pointer font-mono transition-colors select-none ${
           isSelected
-            ? "bg-blue-500/20 text-blue-300"
-            : "hover:bg-white/5 text-slate-400"
+            ? "bg-purple-600/20 text-purple-200 border-l-2 border-purple-500"
+            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
         }`}
-        style={{ paddingLeft: `${8 + depth * 12}px`, paddingRight: "8px" }}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
-        {/* Expand toggle */}
-        <span
-          className="w-4 h-4 flex items-center justify-center shrink-0"
-          onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggleExpand(node.id); }}
-        >
-          {hasChildren ? (
-            isExpanded ? (
-              <ChevronDown size={10} className="text-slate-500" />
-            ) : (
-              <ChevronRight size={10} className="text-slate-500" />
-            )
-          ) : (
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-700 mx-auto" />
-          )}
-        </span>
-
-        {/* Tag label */}
-        <span
-          className={`font-mono truncate ${
-            isSelected ? "text-blue-300" : "text-slate-400"
+        {/* Toggle icon */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand(node.id);
+          }}
+          className={`w-4 h-4 flex items-center justify-center rounded text-slate-500 hover:text-slate-300 ${
+            !hasChildren ? "invisible" : ""
           }`}
         >
-          <span className={isSelected ? "text-blue-400" : "text-slate-500"}>
-            {node.tag.charAt(0) === node.tag.charAt(0).toUpperCase()
-              ? "⬡ " // Component (uppercase)
-              : ""}
-          </span>
-          <span className={isSelected ? "text-blue-300" : "text-slate-400"}>
-            {node.tag}
-          </span>
-          {node.classes.slice(0, 3).map((cls) => (
-            <span key={cls} className={isSelected ? "text-blue-400/70" : "text-slate-600"}>
-              .{cls}
+          {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        </button>
+
+        {/* Tag Name */}
+        <span className={`font-semibold text-[10px] ${isSelected ? "text-purple-300" : "text-slate-300"}`}>
+          &lt;{node.tag.toLowerCase()}&gt;
+        </span>
+
+        {/* Class badges */}
+        <span className="ml-1.5 flex items-center gap-1 overflow-hidden truncate">
+          {node.classes.slice(0, 3).map((c) => (
+            <span key={c} className="text-[9px] text-slate-600 group-hover:text-slate-500">
+              .{c}
             </span>
           ))}
-          {node.classes.length > 3 && (
-            <span className="text-slate-700">+{node.classes.length - 3}</span>
-          )}
         </span>
 
         {/* data-id badge */}
         {node.dataId && (
-          <span className="ml-auto shrink-0 text-[9px] font-mono text-slate-700 group-hover:text-slate-600">
+          <span className="ml-auto shrink-0 text-[8px] font-mono text-purple-400/60 group-hover:text-purple-300">
             #{node.dataId}
           </span>
         )}
@@ -249,19 +246,47 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
+  const [liveDomLayers, setLiveDomLayers] = React.useState<LayerNode[] | null>(null);
 
-  // Parse layers from the active file source
-  const layers = React.useMemo(() => {
+  // Listen for live DOM_TREE_SNAPSHOT from LivePreview iframe
+  React.useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === "DOM_TREE_SNAPSHOT" && e.data.tree) {
+        const root = domSnapshotToLayers(e.data.tree);
+        if (root) setLiveDomLayers([root]);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  // Request live DOM tree on mount and when active file changes
+  const refreshDomTree = React.useCallback(() => {
+    try {
+      window.dispatchEvent(new CustomEvent('aura:post-to-preview', { detail: { type: 'GET_DOM_TREE' } }));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  React.useEffect(() => {
+    refreshDomTree();
+  }, [refreshDomTree, activeFile]);
+
+  // Fallback: Parse layers from the active file source
+  const staticLayers = React.useMemo(() => {
     const source = files[activeFile]?.content ?? "";
     if (!source || (!activeFile.endsWith(".tsx") && !activeFile.endsWith(".jsx"))) return [];
     return parseJSXToLayers(source);
   }, [files, activeFile]);
 
-  // Auto-expand the first 2 levels on initial parse
+  const layers = liveDomLayers ?? staticLayers;
+
+  // Auto-expand the first 3 levels
   React.useEffect(() => {
     const autoExpand = new Set<string>();
     const expand = (nodes: LayerNode[], depth: number) => {
-      if (depth > 2) return;
+      if (depth > 3) return;
       for (const n of nodes) {
         if (n.children.length > 0) {
           autoExpand.add(n.id);
@@ -289,13 +314,15 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   if (layers.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-        <div className="w-10 h-10 rounded-full border flex items-center justify-center mb-3 text-slate-600 animate-pulse"
-          style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+        <div
+          className="w-10 h-10 rounded-full border flex items-center justify-center mb-3 text-slate-600 animate-pulse"
+          style={{ borderColor: "rgba(255,255,255,0.06)" }}
+        >
           <Layers size={16} />
         </div>
-        <p className="text-[11px] font-medium text-slate-500">No JSX layers found</p>
-        <p className="text-[10px] text-slate-700 mt-1">
-          Open a .tsx or .jsx file to see its component tree
+        <p className="text-[11px] font-medium text-slate-400">No DOM layers available</p>
+        <p className="text-[10px] text-slate-600 mt-1">
+          Open a .tsx file or start Design Mode to view rendered elements
         </p>
       </div>
     );
@@ -304,24 +331,37 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   const selectedId = selectedElement?.id ?? null;
 
   return (
-    <div className="flex flex-col h-full bg-[#1a1a1a]">
-      {/* Search */}
-      <div className="p-2 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-        <div className="flex items-center gap-2 bg-black/30 border rounded-md px-2 h-7"
-          style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-          <Search size={10} className="text-slate-600 shrink-0" />
+    <div className="flex flex-col h-full bg-[#141414]">
+      {/* Search & Refresh Bar */}
+      <div className="p-2 border-b shrink-0 flex items-center gap-1.5" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+        <div
+          className="flex-1 flex items-center gap-2 bg-black/40 border rounded-md px-2 h-7"
+          style={{ borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <Search size={10} className="text-slate-500 shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search layers…"
-            className="flex-1 bg-transparent text-[11px] text-slate-300 placeholder-slate-700 outline-none"
+            className="flex-1 bg-transparent text-[11px] text-slate-300 placeholder-slate-600 outline-none"
           />
         </div>
+        <button
+          type="button"
+          onClick={refreshDomTree}
+          title="Refresh DOM tree"
+          className="p-1.5 rounded hover:bg-white/5 text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          <RefreshCw size={11} />
+        </button>
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#2a2a2a transparent" }}>
+      <div
+        className="flex-1 overflow-y-auto py-1"
+        style={{ scrollbarWidth: "thin", scrollbarColor: "#262626 transparent" }}
+      >
         {layers.map((node) => (
           <LayerRow
             key={node.id}
@@ -336,11 +376,17 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
         ))}
       </div>
 
-      {/* Footer hint */}
-      <div className="shrink-0 px-3 py-2 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-        <p className="text-[9px] text-slate-700">
-          {activeFile} · {layers.length} root element{layers.length !== 1 ? "s" : ""}
-        </p>
+      {/* Footer Status */}
+      <div
+        className="shrink-0 px-3 py-1.5 border-t flex items-center justify-between"
+        style={{ borderColor: "rgba(255,255,255,0.06)" }}
+      >
+        <span className="text-[9px] text-slate-600">
+          {liveDomLayers ? "Live DOM Tree" : `${activeFile} (Static)`}
+        </span>
+        <span className="text-[9px] text-purple-400/80 font-mono">
+          {layers.length} root
+        </span>
       </div>
     </div>
   );

@@ -35,4 +35,8 @@ export type { FormProps, FormField } from './Form.js'
 export { Spacer } from './Spacer.js'
 export type { SpacerProps } from './Spacer.js'
 
+export { bootstrapAura } from './bootstrap.js'
+export type { AuraRuntime } from './bootstrap.js'
+
 export type { BlockProps } from './types.js'
+

@@ -18,6 +18,7 @@ export * from "./types/template.types";
 export * from "./types/collaboration.types";
 
 export * from "./types/workspace.types";
+export type { ComputedStyle } from "./types/workspace.types";
 
 // Aura core interfaces (Phase 1)
 export type {

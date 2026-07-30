@@ -23,13 +23,81 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+export interface ComputedStyle {
+  // Box model
+  width: string;
+  height: string;
+  minWidth: string;
+  maxWidth: string;
+  minHeight: string;
+  maxHeight: string;
+  // Position
+  position: string;
+  top: string;
+  right: string;
+  bottom: string;
+  left: string;
+  zIndex: string;
+  // Spacing
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
+  paddingTop: string;
+  paddingRight: string;
+  paddingBottom: string;
+  paddingLeft: string;
+  // Layout
+  display: string;
+  flexDirection: string;
+  flexWrap: string;
+  justifyContent: string;
+  alignItems: string;
+  gap: string;
+  gridTemplateColumns: string;
+  gridTemplateRows: string;
+  // Appearance
+  backgroundColor: string;
+  backgroundImage: string;
+  opacity: string;
+  borderWidth: string;
+  borderStyle: string;
+  borderColor: string;
+  borderRadius: string;
+  boxShadow: string;
+  // Typography
+  fontFamily: string;
+  fontSize: string;
+  fontWeight: string;
+  fontStyle: string;
+  lineHeight: string;
+  letterSpacing: string;
+  textAlign: string;
+  color: string;
+  textDecoration: string;
+  // Transform
+  transform: string;
+  filter: string;
+  backdropFilter: string;
+  mixBlendMode: string;
+  // Overflow
+  overflow: string;
+  overflowX: string;
+  overflowY: string;
+  // Cursor
+  cursor: string;
+}
+
 export interface SelectedElement {
   id: string; // The data-id attribute to identify the JSX element uniquely
   tagName: string;
   text: string;
   classes: string[];
   filePath: string; // The virtual file path where the element resides
+  computedStyle?: Partial<ComputedStyle>; // Live computed CSS from the DOM
+  rect?: { x: number; y: number; width: number; height: number }; // Bounding box
 }
+
 
 export interface ComponentBlock {
   id: string;
