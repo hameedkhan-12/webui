@@ -13,16 +13,9 @@
  */
 
 import { parse } from '@babel/parser'
-// @babel/traverse's CJS/ESM interop is inconsistent across bundlers -- this
-// normalizes both shapes, matching the pattern already used in
-// packages/plugins/src/vite-plugin-aura.ts (the one place in this repo that
-// already uses real Babel correctly).
-import * as traverseModule from '@babel/traverse'
 import * as t from '@babel/types'
 import type { NodePath } from '@babel/traverse'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const traverse = ((traverseModule as any).default ?? traverseModule) as typeof import('@babel/traverse').default
+import { traverse } from './babel-interop.js'
 
 export interface ParsedNode {
   readonly auraId: string

@@ -1,17 +1,13 @@
 {
   "name": "@aura/blocks",
   "version": "1.0.0",
-  "description": "Reusable visual block components for the Aura visual IDE",
+  "description": "Reusable visual block components (plain React components -- no registration system; any element becomes editable via @aura/ast-engine regardless of whether it's one of these components or fully custom AI-generated code)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./manifest": {
-      "types": "./dist/manifest.d.ts",
-      "default": "./dist/manifest.js"
     }
   },
   "scripts": {
@@ -25,12 +21,6 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "dependencies": {
-    "@repo/shared": "workspace:*",
-    "@aura/kernel": "workspace:*",
-    "@aura/component-registry": "workspace:*",
-    "@aura/schema-engine": "workspace:*"
-  },
   "peerDependencies": {
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19"

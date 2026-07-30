@@ -14,8 +14,8 @@
  */
 
 import * as t from '@babel/types'
-import * as traverseModule from '@babel/traverse'
 import type { NodePath } from '@babel/traverse'
+import { traverse } from './babel-interop.js'
 import type {
   UpdatePropOperation,
   UpdateStyleOperation,
@@ -24,9 +24,6 @@ import type {
   RemoveClassOperation,
 } from '@repo/shared'
 import { findOpeningElement, parseSource } from './ast.parser.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const traverse = ((traverseModule as any).default ?? traverseModule) as typeof import('@babel/traverse').default
 
 /**
  * Thrown when a target node is found, but its className (or other mutated

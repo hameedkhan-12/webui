@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CreateProjectDto } from './dto/create-project.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { CreateVersionDto } from './dto/create-version.dto';
 
@@ -211,9 +211,9 @@ export class ProjectsService {
       data: {
         projectId,
         version: nextVersion,
-        snapshot: createVersionDto.snapshot,
+        snapshot: createVersionDto.snapshot as any,
         message: createVersionDto.message,
-        createdBy: userClerkId,
+        createdBy: userClerkId
       },
     });
   }

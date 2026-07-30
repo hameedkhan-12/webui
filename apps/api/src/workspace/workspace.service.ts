@@ -16,7 +16,7 @@ const DEFAULT_FILES = [
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.4.1",
+    "next": "14.2.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "lucide-react": "^0.468.0",
@@ -32,8 +32,8 @@ const DEFAULT_FILES = [
     "@types/react": "18.2.65",
     "@types/react-dom": "18.2.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "^9.39.1",
-    "eslint-config-next": "15.4.1",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5",
     "postcss": "^8.4.49",
     "tailwindcss": "3.4.4",
     "typescript": "5.3.3"
@@ -41,12 +41,19 @@ const DEFAULT_FILES = [
 }`,
   },
   {
-    path: 'next.config.ts',
+    path: 'next.config.mjs',
     kind: 'file',
-    content: `import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
+    content: `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: false,
+  experimental: { cpus: 1 },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = { ...config.resolve.fallback, async_hooks: false };
+    }
+    config.parallelism = 1;
+    return config;
+  },
 };
 
 export default nextConfig;

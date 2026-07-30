@@ -6,12 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { BuildFile, getConfig, PublishResult } from '@repo/shared';
-import { PrismaService } from 'src/prisma/prisma.service';
 import { BundlerService } from './bundler.service';
 import { R2StorageService } from './r2-storage.service';
 import { SlugService } from './slug.service';
 import { PublishStatus, PublishTrigger } from '@webra/database';
 import { Response } from 'express';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class PublishService {
@@ -71,6 +71,11 @@ export class PublishService {
     }
 
     const generatedCode = project.generatedCode[0];
+    if(!generatedCode){
+      throw new BadRequestException(
+        'No completed generated code found for this project. Please generate code first.',
+      );
+    }
     const files = generatedCode.files as unknown as BuildFile[];
 
     const projectSlug = await this.slug.getOrAssignSlug(
@@ -128,7 +133,7 @@ export class PublishService {
         data: {
           status: PublishStatus.PUBLISHED,
           buildTime: bundleResult.buildTime,
-          totalSize: BigInt[bundleResult.totalSize],
+          // totalSize: BigInt[bundleResult.totalSize],
           fileCount: bundleResult.files.length,
           publishedAt: new Date(),
           errorMessage: null,

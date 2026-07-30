@@ -192,49 +192,33 @@ export class TemplateService {
   }
 
   /**
-   * Generate Next.js 16 configuration
+   * Generate Next.js configuration (next.config.mjs — TypeScript config is Next.js 15+ only)
    */
   private generateNextConfig(options: any): GeneratedFile {
-    const config = {
-      reactStrictMode: true,
-
+    const config: Record<string, any> = {
+      reactStrictMode: false,
       experimental: {
-        turbo: {},
-        reactCompiler: true,
-        ppr: options.pwa ? true : false,
-      },
-
-      images: {
-        remotePatterns: [],
-      },
-
-      typescript: {
-        ignoreBuildErrors: false,
-      },
-
-      eslint: {
-        ignoreDuringBuilds: false,
+        cpus: 1,
       },
     };
 
     if (options.i18n) {
-      (config as any).i18n = {
+      config['i18n'] = {
         locales: ['en', 'es', 'fr', 'de'],
         defaultLocale: 'en',
       };
     }
 
-    const content = `import type { NextConfig } from 'next'
+    const content = `/** @type {import('next').NextConfig} */
+const nextConfig = ${JSON.stringify(config, null, 2)};
 
-const nextConfig: NextConfig = ${JSON.stringify(config, null, 2)}
-
-export default nextConfig
+export default nextConfig;
 `;
 
     return {
-      path: 'next.config.ts',
+      path: 'next.config.mjs',
       content,
-      language: 'typescript',
+      language: 'javascript',
     };
   }
 

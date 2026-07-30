@@ -5,7 +5,7 @@ const PROTECTED_FILES = new Set([
   'src/app/layout.tsx',
   'src/app/globals.css',
   'package.json',
-  'next.config.ts',
+  'next.config.mjs',
   'next-env.d.ts',
   'tsconfig.json',
   'postcss.config.mjs',

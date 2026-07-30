@@ -1,3 +1,4 @@
+// packages/component-registry/tsconfig.json
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
@@ -8,5 +9,5 @@
     "moduleResolution": "NodeNext"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../shared" }, { "path": "../aura-kernel" }]
+  "references": [{ "path": "../shared" }]
 }

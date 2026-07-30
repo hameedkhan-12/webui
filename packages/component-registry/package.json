@@ -18,8 +18,7 @@
     "lint": "echo \"lint: not configured yet\""
   },
   "dependencies": {
-    "@repo/shared": "workspace:*",
-    "@aura/kernel": "workspace:*"
+    "@repo/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

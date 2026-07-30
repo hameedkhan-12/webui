@@ -1,3 +1,4 @@
+// packages/blocks/src/index.ts
 export { Hero } from './Hero.js'
 export type { HeroProps } from './Hero.js'
 
@@ -34,10 +35,4 @@ export type { FormProps, FormField } from './Form.js'
 export { Spacer } from './Spacer.js'
 export type { SpacerProps } from './Spacer.js'
 
-export type { BlockDefinition, BlockProps } from './types.js'
-export { BUILT_IN_BLOCKS, BLOCK_DEFINITIONS_BY_KEY } from './registry.js'
-
-export { bootstrapAura, __resetAuraRuntimeForTests } from './bootstrap.js'
-export type { AuraRuntime } from './bootstrap.js'
-export { BLOCK_MANIFEST } from './manifest.js'
-export type { BlockManifestItem } from './manifest.js'
+export type { BlockProps } from './types.js'

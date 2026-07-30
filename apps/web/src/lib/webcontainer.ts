@@ -7,7 +7,7 @@ let webcontainerInstance: WebContainer | null = null;
 const REQUIRED_DEPS: Record<string, string> = {
   react: "18.2.0",
   "react-dom": "18.2.0",
-  next: "15.4.1",
+  next: "14.2.5",
   "lucide-react": "^0.468.0",
   recharts: "^2.15.0",
   "framer-motion": "^11.15.0",
@@ -27,7 +27,7 @@ const REQUIRED_DEV_DEPS: Record<string, string> = {
   typescript: "5.3.3",
 };
 
-const WEBCONTAINER_DEV_SCRIPT = "next dev --hostname 0.0.0.0 --port 3000";
+const WEBCONTAINER_DEV_SCRIPT = "NEXT_PRIVATE_WORKERS=0 next dev --hostname 0.0.0.0 --port 3000";
 
 /** Merges required deps into the package.json content string.
  * Spread order: user packages first, then REQUIRED_DEPS — so our pinned
@@ -43,8 +43,8 @@ function mergePackageJson(content: string): string {
       ...REQUIRED_DEV_DEPS,
     };
     pkg.scripts = pkg.scripts ?? {};
-    // WebContainer must bind to 0.0.0.0 so the preview iframe can reach the dev server
-    if (!pkg.scripts.dev?.includes("0.0.0.0")) {
+    // Disable worker thread spawning and bind to 0.0.0.0
+    if (!pkg.scripts.dev?.includes("NEXT_PRIVATE_WORKERS") || !pkg.scripts.dev?.includes("0.0.0.0")) {
       pkg.scripts.dev = WEBCONTAINER_DEV_SCRIPT;
     }
     return JSON.stringify(pkg, null, 2);
@@ -73,7 +73,14 @@ const INSPECTOR_SCRIPT = `
 (function() {
   if (typeof window === 'undefined') return;
 
-  // Propagate console + errors to parent
+  if (window.__auraInspectorLoaded) {
+    try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
+    return;
+  }
+  window.__auraInspectorLoaded = true;
+  window.__designMode = true;
+
+  // Log & Error interception
   var captureLog = function(level) {
     var original = console[level];
     return function() {
@@ -81,194 +88,140 @@ const INSPECTOR_SCRIPT = `
       if (typeof original === 'function') {
         try { original.apply(console, args); } catch(err) {}
       }
-      window.parent.postMessage({
-        type: 'IFRAME_CONSOLE',
-        level: level,
-        message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
-      }, '*');
+      try {
+        window.parent.postMessage({
+          type: 'IFRAME_CONSOLE',
+          level: level,
+          message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
+        }, '*');
+      } catch(e) {}
     };
   };
   console.log   = captureLog('log');
   console.error = captureLog('error');
   console.warn  = captureLog('warn');
-  
+
   var originalOnError = window.onerror;
   window.onerror = function(message, source, lineno, colno, error) {
     if (typeof originalOnError === 'function') {
       try { originalOnError.apply(window, arguments); } catch(err) {}
     }
-    window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
+    try {
+      window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
+    } catch(e) {}
     return true;
   };
 
-  if (window.__inspectorInjected) {
-    console.log('[Inspector] Already injected in layout.tsx, sending ready signal');
-    window.parent.postMessage({type:'INSPECTOR_READY'},'*');
-    return;
-  }
-  window.__inspectorInjected = true;
-  window.__designMode = false;
-  console.log('[Inspector] Initializing inspector script from layout.tsx...');
-  window.parent.postMessage({type:'INSPECTOR_READY'},'*');
-
-  var idCounter = 1000;
-
+  // Inject inspector styles
   var style = document.createElement('style');
+  style.id = 'aura-inspector-styles';
   style.innerHTML = [
-    '.designer-hover { outline: 1.5px dashed rgba(168,85,247,0.6) !important; outline-offset: -1.5px !important; cursor: pointer !important; }',
-    '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; }',
-    '.designer-dragover { outline: 2.5px dashed #a855f7 !important; outline-offset: -2.5px !important; background-color: rgba(168,85,247,0.15) !important; }'
+    '.designer-hover { outline: 2px dashed #a855f7 !important; outline-offset: -2px !important; cursor: pointer !important; }',
+    '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; box-shadow: 0 0 0 2px rgba(168,85,247,0.3) !important; }'
   ].join('\\n');
-  document.head.appendChild(style);
-
-  // Floating Debug Overlay Widget
-  var debugWidget = document.createElement('div');
-  debugWidget.id = 'aura-inspector-debug-widget';
-  debugWidget.style.cssText = 'position: fixed; bottom: 8px; right: 8px; background: rgba(15, 23, 42, 0.95); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 6px 10px; font-family: monospace; font-size: 10px; border-radius: 6px; z-index: 999999; pointer-events: none; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); line-height: 1.4;';
   
-  var attachWidget = function() {
-    if (document.body && !document.getElementById('aura-inspector-debug-widget')) {
-      document.body.appendChild(debugWidget);
+  var injectStyle = function() {
+    if (document.head && !document.getElementById('aura-inspector-styles')) {
+      document.head.appendChild(style);
     }
   };
-  if (document.body) { attachWidget(); } else { window.addEventListener('DOMContentLoaded', attachWidget); }
+  if (document.head) { injectStyle(); }
+  else { window.addEventListener('DOMContentLoaded', injectStyle); }
 
-  var updateDebugWidget = function(msg) {
-    var wiredCount = document.querySelectorAll('[data-inspector-wired]').length;
-    debugWidget.innerHTML = [
-      '<div><strong>AURA INSPECTOR ACTIVE</strong></div>',
-      '<div>Design Mode: <span style="color: ' + (window.__designMode ? '#4ade80' : '#f87171') + '">' + window.__designMode + '</span></div>',
-      '<div>Wired Elements: ' + wiredCount + '</div>',
-      msg ? '<div style="color: #e2e8f0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 4px; padding-top: 4px;">Last Msg: ' + msg + '</div>' : ''
-    ].join('');
-  };
-  updateDebugWidget('Initialized');
+  // Ack ready to parent
+  try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
 
-  // Accept commands from parent
+  // Parent message handling
   window.addEventListener('message', function(e) {
-    if (!e.data) return;
+    if (!e.data || typeof e.data !== 'object') return;
     if (e.data.type === 'SET_DESIGN_MODE') {
-      console.log('[Inspector] Received SET_DESIGN_MODE from parent:', e.data.enabled);
       window.__designMode = !!e.data.enabled;
-      updateDebugWidget('SET_DESIGN_MODE: ' + e.data.enabled);
+      if (!window.__designMode) {
+        document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
+      }
     }
-    // Allow parent to inject inspector at runtime (for apps running before inspector was installed)
-    if (e.data.type === 'INJECT_INSPECTOR' && typeof e.data.script === 'string') {
-      console.log('[Inspector] Received INJECT_INSPECTOR request');
-      updateDebugWidget('INJECT_INSPECTOR');
-      try { (0, eval)(e.data.script); } catch(err) { console.error('[Inspector] Failed to eval runtime script:', err); }
+    if (e.data.type === 'INJECT_INSPECTOR') {
+      if (typeof e.data.script === 'string') {
+        try { (0, eval)(e.data.script); } catch(err) {}
+      }
+      try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(err) {}
     }
     if (e.data.type === 'SELECT_ELEMENT') {
-      document.querySelectorAll('.designer-selected').forEach(function(x) {
-        x.classList.remove('designer-selected');
-      });
+      document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
       if (e.data.id) {
         var el = document.querySelector('[data-aura-id="' + e.data.id + '"]') || document.querySelector('[data-id="' + e.data.id + '"]');
         if (el) {
           el.classList.add('designer-selected');
-          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          updateDebugWidget('SELECT_ELEMENT: ' + e.data.id);
         }
       }
     }
   });
 
-  function getInspectableElements() {
-    // Skip tiny/invisible elements and structural wrappers
-    var SKIP_TAGS = new Set(['HTML','HEAD','BODY','SCRIPT','STYLE','NOSCRIPT','SVG','PATH','DEFS','SYMBOL','G','USE']);
-    var all = document.body ? Array.prototype.slice.call(document.body.querySelectorAll('*')) : [];
-    return all.filter(function(el) {
-      if (SKIP_TAGS.has(el.tagName)) return false;
-      var rect = el.getBoundingClientRect();
-      return rect.width > 4 && rect.height > 4;
-    });
+  // Delegated event handling (Onlook style)
+  var SKIP_TAGS = new Set(['HTML', 'HEAD', 'BODY', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'DEFS', 'SYMBOL', 'G', 'USE']);
+  var idCounter = 1000;
+
+  function getCleanId(target) {
+    var id = target.getAttribute('data-aura-id') || target.getAttribute('data-id');
+    if (!id) {
+      id = 'el-' + (idCounter++) + '-' + Math.random().toString(36).substring(2, 7);
+      target.setAttribute('data-aura-id', id);
+      target.setAttribute('data-id', id);
+    }
+    return id;
   }
 
-  function wireElement(el) {
-    if (el.dataset.inspectorWired) return;
-    el.dataset.inspectorWired = 'true';
+  // Hover in design mode
+  window.addEventListener('mouseover', function(e) {
+    if (!window.__designMode) return;
+    var target = e.target;
+    if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
+    document.querySelectorAll('.designer-hover').forEach(function(x) {
+      if (x !== target) x.classList.remove('designer-hover');
+    });
+    target.classList.add('designer-hover');
+  }, true);
 
-    // Auto-assign an ID if none exists
-    if (!el.getAttribute('data-aura-id') && !el.dataset.auraId && !el.getAttribute('data-id') && !el.dataset.id) {
-      var assignedId = 'rt-' + (idCounter++);
-      el.setAttribute('data-aura-id', assignedId);
-      el.setAttribute('data-id', assignedId);
+  window.addEventListener('mouseout', function(e) {
+    if (!window.__designMode) return;
+    if (e.target && e.target.classList) {
+      e.target.classList.remove('designer-hover');
     }
-    var elId = el.getAttribute('data-aura-id') || el.dataset.auraId || el.getAttribute('data-id') || el.dataset.id;
+  }, true);
 
-    el.setAttribute('draggable', 'true');
+  // Click selection in design mode
+  window.addEventListener('click', function(e) {
+    if (!window.__designMode) return;
+    var target = e.target;
+    if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
 
-    el.addEventListener('mouseenter', function(e) {
-      if (!window.__designMode) return;
-      e.stopPropagation();
-      el.classList.add('designer-hover');
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+      e.stopImmediatePropagation();
+    }
+
+    document.querySelectorAll('.designer-selected, .designer-hover').forEach(function(x) {
+      x.classList.remove('designer-selected', 'designer-hover');
     });
-    el.addEventListener('mouseleave', function(e) {
-      e.stopPropagation();
-      el.classList.remove('designer-hover');
+    target.classList.add('designer-selected');
+
+    var id = getCleanId(target);
+    var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
+      return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
-    el.addEventListener('dragstart', function(e) {
-      if (!window.__designMode) return;
-      e.stopPropagation();
-      e.dataTransfer.setData('text/plain', 'element-id:' + elId);
-      el.classList.add('opacity-40');
-    });
-    el.addEventListener('dragend', function(e) {
-      e.stopPropagation();
-      el.classList.remove('opacity-40');
-    });
-    el.addEventListener('dragover', function(e) {
-      if (!window.__designMode) return;
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.add('designer-dragover');
-    });
-    el.addEventListener('dragenter', function(e) {
-      if (!window.__designMode) return;
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.add('designer-dragover');
-    });
-    el.addEventListener('dragleave', function(e) {
-      e.stopPropagation();
-      el.classList.remove('designer-dragover');
-    });
-    el.addEventListener('drop', function(e) {
-      if (!window.__designMode) return;
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.remove('designer-dragover');
-      var data = e.dataTransfer.getData('text/plain');
-      if (data) {
-        window.parent.postMessage({ type: 'COMPONENT_DROPPED', targetId: elId, data: data }, '*');
-      }
-    });
-    el.addEventListener('click', function(e) {
-      if (!window.__designMode) return;
-      e.preventDefault();
-      e.stopPropagation();
-      document.querySelectorAll('.designer-selected').forEach(function(x) {
-        x.classList.remove('designer-selected');
-      });
-      el.classList.add('designer-selected');
+
+    try {
       window.parent.postMessage({
         type: 'ELEMENT_SELECTED',
-        id: elId,
-        tagName: el.tagName,
-        text: (el.innerText || '').slice(0, 200),
-        classes: Array.prototype.filter.call(el.classList, function(c) {
-          return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover' && c !== 'opacity-40';
-        })
+        id: id,
+        tagName: target.tagName,
+        text: (target.innerText || target.textContent || '').trim().slice(0, 200),
+        classes: classList
       }, '*');
-    });
-  }
+    } catch(err) {}
+  }, true);
 
-  // Poll and wire new elements every 800ms (covers React re-renders)
-  setInterval(function() {
-    attachWidget();
-    getInspectableElements().forEach(wireElement);
-    updateDebugWidget();
-  }, 800);
 })();
 `;
 
@@ -301,9 +254,13 @@ function injectInspector(path: string, content: string): string {
     return content;
   }
 
-  const modified = content;
-  const scriptTag = `<script id="${INSPECTOR_SCRIPT_MARKER}" dangerouslySetInnerHTML={{ __html: ${JSON.stringify(INSPECTOR_SCRIPT)} }} />`;
+  const escapedScript = INSPECTOR_SCRIPT.replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\${/g, "\\${");
 
+  const scriptTag = `<script id="${INSPECTOR_SCRIPT_MARKER}" dangerouslySetInnerHTML={{ __html: \`${escapedScript}\` }} />`;
+
+  const modified = content;
   const bodyCloseRegex = /<\/body>/i;
   if (bodyCloseRegex.test(modified)) {
     return modified.replace(bodyCloseRegex, `\n${scriptTag}\n</body>`);

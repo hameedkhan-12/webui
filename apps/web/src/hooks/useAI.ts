@@ -1,12 +1,22 @@
 // apps/web/src/hooks/useAI.ts
-import React from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { ChatMessage, ChatSession, WorkspaceFiles, Operation } from '@repo/shared';
-import { startAiGeneration, pollAiJob, cancelAiJob, streamAiGeneration } from '../lib/aiStreamingApi';
-import { DEFAULT_PROJECT_ID } from '../lib/workspaceApi';
-import { APP_ENTRY } from '../lib/defaultProject';
-import { normalizePath } from '../lib/workspaceFs';
-import { tagWithCounter } from '@aura/ast-engine';
+import React from "react";
+import { useAuth } from "@clerk/nextjs";
+import {
+  ChatMessage,
+  ChatSession,
+  WorkspaceFiles,
+  Operation,
+} from "@repo/shared";
+import {
+  startAiGeneration,
+  pollAiJob,
+  cancelAiJob,
+  streamAiGeneration,
+} from "../lib/aiStreamingApi";
+import { DEFAULT_PROJECT_ID } from "../lib/workspaceApi";
+import { APP_ENTRY } from "../lib/defaultProject";
+import { normalizePath } from "../lib/workspaceFs";
+import { tagWithCounter } from "@aura/ast-engine";
 
 interface UseAiProps {
   files: WorkspaceFiles;
@@ -19,20 +29,27 @@ interface UseAiProps {
   setOpenTabs: React.Dispatch<React.SetStateAction<string[]>>;
   setActiveFile: React.Dispatch<React.SetStateAction<string>>;
   setLastCompileError: React.Dispatch<React.SetStateAction<string | null>>;
-  handleAddConsoleLine: (text: string, type: 'info' | 'success' | 'warning' | 'error' | 'input') => void;
+  handleAddConsoleLine: (
+    text: string,
+    type: "info" | "success" | "warning" | "error" | "input",
+  ) => void;
   simulateTerminalBuildAndStart: (currentFiles: WorkspaceFiles) => void;
   handleStartDevServer: () => void;
-  executeTransaction: (ops: Operation[], label: string, source: 'ai' | 'drag_drop' | 'inspector' | 'code_editor' | 'system') => void;
+  executeTransaction: (
+    ops: Operation[],
+    label: string,
+    source: "ai" | "drag_drop" | "inspector" | "code_editor" | "system",
+  ) => void;
   workspaceReady: boolean;
   projectId: string;
-  webcontainerStatus?: 'idle' | 'booting' | 'ready' | 'error';
+  webcontainerStatus?: "idle" | "booting" | "ready" | "error";
   /** Force a full workspace save to the DB (called after AI generation finishes) */
   saveImmediately?: () => Promise<void>;
   /** Ref to suppress autosave timer while AI is streaming files */
   isAiGeneratingRef?: React.MutableRefObject<boolean>;
 }
 
-const SESSIONS_FILE = 'chat-sessions.json';
+const SESSIONS_FILE = "chat-sessions.json";
 
 function deserializeSessions(raw: string): ChatSession[] {
   try {
@@ -69,7 +86,7 @@ export function useAI({
   executeTransaction,
   workspaceReady,
   projectId,
-  webcontainerStatus = 'idle',
+  webcontainerStatus = "idle",
   saveImmediately,
   isAiGeneratingRef,
 }: UseAiProps) {
@@ -77,9 +94,11 @@ export function useAI({
 
   // ─── Session state ────────────────────────────────────────────────
   const [sessions, setSessionsState] = React.useState<ChatSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(
+    null,
+  );
   const [isGenerating, setIsGenerating] = React.useState(false);
-  const [activeModel, setActiveModel] = React.useState('Claude Sonnet');
+  const [activeModel, setActiveModel] = React.useState("Claude Sonnet");
 
   const lastActionWasAiRef = React.useRef(false);
   const aiAutoFixCountRef = React.useRef(0);
@@ -95,25 +114,34 @@ export function useAI({
       const content = JSON.stringify(next, null, 2);
       const exists = SESSIONS_FILE in files;
       const op = exists
-        ? { type: 'UPDATE_FILE_RAW' as const, payload: { path: SESSIONS_FILE, content } }
-        : { type: 'CREATE_FILE' as const, payload: { path: SESSIONS_FILE, template: content } };
-      setTimeout(() => executeTransaction([op], 'Save Chat Sessions', 'system'), 0);
+        ? {
+            type: "UPDATE_FILE_RAW" as const,
+            payload: { path: SESSIONS_FILE, content },
+          }
+        : {
+            type: "CREATE_FILE" as const,
+            payload: { path: SESSIONS_FILE, template: content },
+          };
+      setTimeout(
+        () => executeTransaction([op], "Save Chat Sessions", "system"),
+        0,
+      );
     },
-    [files, executeTransaction]
+    [files, executeTransaction],
   );
 
   const setSessions = React.useCallback(
     (update: ChatSession[] | ((prev: ChatSession[]) => ChatSession[])) => {
       setSessionsState((prev) => {
-        const next = typeof update === 'function' ? update(prev) : update;
+        const next = typeof update === "function" ? update(prev) : update;
         persistSessions(next);
         return next;
       });
     },
-    [persistSessions]
+    [persistSessions],
   );
 
-  const lastProjectIdRef = React.useRef<string>('');
+  const lastProjectIdRef = React.useRef<string>("");
 
   // ─── Load from workspace file ─────────────────────────────────────
   React.useEffect(() => {
@@ -128,7 +156,8 @@ export function useAI({
         setSessionsState(loaded);
         // Activate the most recently updated session
         const latest = [...loaded].sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         )[0];
         setActiveSessionId(latest.id);
       } else {
@@ -149,7 +178,7 @@ export function useAI({
     const now = new Date();
     const newSession: ChatSession = {
       id,
-      title: 'New chat',
+      title: "New chat",
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -169,7 +198,7 @@ export function useAI({
         return next;
       });
     },
-    [setSessions, activeSessionId]
+    [setSessions, activeSessionId],
   );
 
   const switchSession = React.useCallback((sessionId: string) => {
@@ -188,15 +217,15 @@ export function useAI({
                 updatedAt: new Date(),
                 // Set title from first user message
                 title:
-                  s.messages.length === 0 && msg.role === 'user'
-                    ? msg.content.slice(0, 60).trim() || 'New chat'
+                  s.messages.length === 0 && msg.role === "user"
+                    ? msg.content.slice(0, 60).trim() || "New chat"
                     : s.title,
               }
-            : s
-        )
+            : s,
+        ),
       );
     },
-    [setSessions]
+    [setSessions],
   );
 
   const updateMessageInSession = React.useCallback(
@@ -208,21 +237,21 @@ export function useAI({
                 ...s,
                 updatedAt: new Date(),
                 messages: s.messages.map((m) =>
-                  m.id === msgId ? { ...m, ...patch } : m
+                  m.id === msgId ? { ...m, ...patch } : m,
                 ),
               }
-            : s
-        )
+            : s,
+        ),
       );
     },
-    [setSessions]
+    [setSessions],
   );
 
   // ─── Cancel ───────────────────────────────────────────────────────
   const handleCancelMessage = async () => {
     // With streaming, we stop consuming the generator by setting isGenerating to false
     setIsGenerating(false);
-    handleAddConsoleLine('Generation cancelled by user', 'info');
+    handleAddConsoleLine("Generation cancelled by user", "info");
   };
 
   // ─── Send message (with real-time streaming) ─────────────────────
@@ -237,19 +266,19 @@ export function useAI({
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
-      role: 'user',
+      role: "user",
       content: text,
       timestamp: new Date(),
     };
     appendMessageToSession(sessionId, userMsg);
     setIsGenerating(true);
 
-    const statusLogs = ['🔄 Connecting to AI...'];
+    const statusLogs = ["🔄 Connecting to AI..."];
     const aiMsgId = crypto.randomUUID();
     const aiMsg: ChatMessage = {
       id: aiMsgId,
-      role: 'assistant',
-      content: '⚙️ Generating code...',
+      role: "assistant",
+      content: "⚙️ Generating code...",
       timestamp: new Date(),
       statusLogs: [...statusLogs],
     };
@@ -257,7 +286,9 @@ export function useAI({
 
     const pushLogs = (extra: string[]) => {
       statusLogs.push(...extra);
-      updateMessageInSession(sessionId!, aiMsgId, { statusLogs: [...statusLogs] });
+      updateMessageInSession(sessionId!, aiMsgId, {
+        statusLogs: [...statusLogs],
+      });
     };
 
     // Signal that AI is generating — suppresses the 5s autosave debounce
@@ -265,43 +296,51 @@ export function useAI({
 
     try {
       const token = await getToken({ skipCache: true });
-      handleAddConsoleLine('🔄 AI is generating code...', 'info');
+      handleAddConsoleLine("🔄 AI is generating code...", "info");
 
       let createdFileCount = 0;
       let currentCounter = elementCounter;
       const newTabs: string[] = [];
       let hasErrors = false;
-      let finalMessage = 'Done.';
+      let finalMessage = "Done.";
 
       // Stream file updates in real-time
-      const generator = streamAiGeneration(text, files, folders, projectId, token);
+      const generator = streamAiGeneration(
+        text,
+        files,
+        folders,
+        projectId,
+        token,
+      );
 
       for await (const message of generator) {
-        if (message.type === 'error') {
+        if (message.type === "error") {
           const errData = message.data as any;
-          const errMsg = errData?.message ?? 'Unknown error';
+          const errMsg = errData?.message ?? "Unknown error";
           pushLogs([errMsg]);
           updateMessageInSession(sessionId, aiMsgId, { content: errMsg });
-          handleAddConsoleLine(`❌ ${errMsg}`, 'error');
+          handleAddConsoleLine(`❌ ${errMsg}`, "error");
           hasErrors = true;
           break;
         }
 
-        if (message.type === 'status') {
+        if (message.type === "status") {
           const statusData = message.data as any;
           if (statusData?.message) {
             pushLogs([statusData.message]);
-            updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
-            handleAddConsoleLine(`ℹ️ ${statusData.message}`, 'info');
+            updateMessageInSession(sessionId, aiMsgId, {
+              statusLogs: [...statusLogs],
+            });
+            handleAddConsoleLine(`ℹ️ ${statusData.message}`, "info");
           }
         }
 
-        if (message.type === 'file') {
+        if (message.type === "file") {
           const fileUpdate = message.data as any;
           if (!fileUpdate?.path) continue;
 
           const rawPath = fileUpdate.path;
-          const content = fileUpdate.content || '';
+          const content = fileUpdate.content || "";
 
           // Normalize path
           const normalized = normalizePath(rawPath);
@@ -310,21 +349,36 @@ export function useAI({
           let finalContent = content;
           // Tag ALL JSX/TSX files with data-id so the Canvas Inspector can select
           // any element in any component file — not just page.tsx
-          if (normalized.endsWith('.tsx') || normalized.endsWith('.jsx')) {
+          if (normalized.endsWith(".tsx") || normalized.endsWith(".jsx")) {
             try {
               const tagged = tagWithCounter(finalContent, currentCounter);
               finalContent = tagged.code;
               currentCounter = tagged.newCounter;
-            } catch {
-              // If tagging fails (e.g. non-JSX util file), keep original content
+            } catch (err) {
+              // Previously this silently swallowed ALL errors -- which is
+              // exactly how a real bug (traverse() throwing at runtime due to
+              // a CJS/ESM interop mismatch) went undetected: every AI-written
+              // file silently got zero data-id tags, with no visible error
+              // anywhere. Now at least logged loudly so this can never again
+              // fail invisibly.
+              console.error(
+                `[useAI] Failed to tag "${normalized}" with data-id attributes -- ` +
+                  `this file's elements will NOT be selectable in the inspector:`,
+                err,
+              );
             }
           }
 
           // Write the file immediately — React state + WebContainer both updated
           executeTransaction(
-            [{ type: 'CREATE_FILE', payload: { path: normalized, template: finalContent } }],
+            [
+              {
+                type: "CREATE_FILE",
+                payload: { path: normalized, template: finalContent },
+              },
+            ],
             `AI Writing ${normalized}`,
-            'ai'
+            "ai",
           );
 
           createdFileCount++;
@@ -332,7 +386,9 @@ export function useAI({
           // Open the tab immediately and switch to it on the first file (Bolt-style)
           if (!newTabs.includes(normalized)) {
             newTabs.push(normalized);
-            setOpenTabs((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
+            setOpenTabs((prev) =>
+              prev.includes(normalized) ? prev : [...prev, normalized],
+            );
           }
           if (createdFileCount === 1) {
             // Switch editor to the very first file so the user sees code appear live
@@ -340,12 +396,14 @@ export function useAI({
           }
 
           // Update UI and console
-          handleAddConsoleLine(`📄 Writing ${normalized}`, 'success');
+          handleAddConsoleLine(`📄 Writing ${normalized}`, "success");
           pushLogs([`✅ Created ${normalized}`]);
-          updateMessageInSession(sessionId, aiMsgId, { statusLogs: [...statusLogs] });
+          updateMessageInSession(sessionId, aiMsgId, {
+            statusLogs: [...statusLogs],
+          });
         }
 
-        if (message.type === 'done') {
+        if (message.type === "done") {
           const doneData = message.data as any;
           if (doneData?.message) {
             finalMessage = doneData.message;
@@ -365,10 +423,10 @@ export function useAI({
           newTabs.length > 0
             ? `✅ AI generated ${createdFileCount} file(s)`
             : `✅ AI applied ${createdFileCount} tree operation(s)`,
-          'success'
+          "success",
         );
 
-        if (webcontainerStatus === 'error') {
+        if (webcontainerStatus === "error") {
           setFiles((prev) => {
             simulateTerminalBuildAndStart(prev);
             return prev;
@@ -378,8 +436,8 @@ export function useAI({
         lastActionWasAiRef.current = true;
         if (!isAutoFix) aiAutoFixCountRef.current = 0;
       } else if (!hasErrors) {
-        pushLogs(['⚠️ No files generated — check Gemini response']);
-        handleAddConsoleLine('⚠️ No files were generated', 'warning');
+        pushLogs(["⚠️ No files generated — check Gemini response"]);
+        handleAddConsoleLine("⚠️ No files were generated", "warning");
       }
 
       updateMessageInSession(sessionId, aiMsgId, {
@@ -387,8 +445,8 @@ export function useAI({
         statusLogs: [...statusLogs],
       });
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : 'Unknown error';
-      handleAddConsoleLine(`❌ ${errMsg}`, 'error');
+      const errMsg = error instanceof Error ? error.message : "Unknown error";
+      handleAddConsoleLine(`❌ ${errMsg}`, "error");
       updateMessageInSession(sessionId, aiMsgId, { content: errMsg });
     } finally {
       setIsGenerating(false);
@@ -396,8 +454,10 @@ export function useAI({
       if (isAiGeneratingRef) isAiGeneratingRef.current = false;
       // Force a full save so generated files are persisted for this projectId
       if (saveImmediately) {
-        try { await saveImmediately(); } catch (e) {
-          console.warn('[useAI] saveImmediately failed:', e);
+        try {
+          await saveImmediately();
+        } catch (e) {
+          console.warn("[useAI] saveImmediately failed:", e);
         }
       }
     }
@@ -410,11 +470,14 @@ export function useAI({
     if (lastActionWasAiRef.current && aiAutoFixCountRef.current < 2) {
       lastActionWasAiRef.current = false;
       aiAutoFixCountRef.current += 1;
-      handleAddConsoleLine('⚠️ Detected compile/runtime error. Auto-correcting with AI...', 'warning');
+      handleAddConsoleLine(
+        "⚠️ Detected compile/runtime error. Auto-correcting with AI...",
+        "warning",
+      );
       setTimeout(() => {
         void handleSendMessage(
           `I got a compilation/runtime error in the preview:\n\n${message}\n\nPlease analyze the code and correct the file to fix it.`,
-          true
+          true,
         );
       }, 1500);
     }
@@ -422,14 +485,16 @@ export function useAI({
 
   const handleFixError = () => {
     if (!lastCompileError) {
-      handleAddConsoleLine('No errors detected to fix', 'info');
-      void handleSendMessage('Check the preview and let me know if there are any errors to fix.');
+      handleAddConsoleLine("No errors detected to fix", "info");
+      void handleSendMessage(
+        "Check the preview and let me know if there are any errors to fix.",
+      );
       return;
     }
 
-    handleAddConsoleLine('🔧 Sending error to AI for analysis...', 'info');
+    handleAddConsoleLine("🔧 Sending error to AI for analysis...", "info");
     void handleSendMessage(
-      `I got a compilation/runtime error in the preview:\n\n${lastCompileError}\n\nPlease analyze the code and fix it. Look for missing dependencies, syntax errors, or logic issues.`
+      `I got a compilation/runtime error in the preview:\n\n${lastCompileError}\n\nPlease analyze the code and fix it. Look for missing dependencies, syntax errors, or logic issues.`,
     );
   };
 

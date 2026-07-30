@@ -16,7 +16,7 @@ export const PROTECTED_FILES = new Set([
   LAYOUT_ENTRY,
   STYLES_ENTRY,
   PACKAGE_JSON,
-  "next.config.ts",
+  "next.config.mjs",
   "next-env.d.ts",
   "tsconfig.json",
   "postcss.config.mjs",
@@ -27,7 +27,7 @@ export const DEFAULT_OPEN_TABS = [
   APP_ENTRY,
   LAYOUT_ENTRY,
   STYLES_ENTRY,
-  "next.config.ts",
+  "next.config.mjs",
   PACKAGE_JSON,
 ];
 
@@ -46,7 +46,7 @@ export const DEFAULT_FILES: WorkspaceFiles = {
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.4.1",
+    "next": "14.2.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "lucide-react": "^0.468.0",
@@ -62,21 +62,26 @@ export const DEFAULT_FILES: WorkspaceFiles = {
     "@types/react": "18.2.65",
     "@types/react-dom": "18.2.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "^9.39.1",
-    "eslint-config-next": "15.4.1",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5",
     "postcss": "^8.4.49",
     "tailwindcss": "3.4.4",
     "typescript": "5.3.3"
   }
 }`,
   },
-  "next.config.ts": {
-    name: "next.config.ts",
-    path: "next.config.ts",
-    content: `import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
+  "next.config.mjs": {
+    name: "next.config.mjs",
+    path: "next.config.mjs",
+    content: `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: false,
+  // Limit parallelism inside WebContainer — it runs in a browser context with
+  // limited threading; spawning many workers causes excessive memory use and
+  // dozens of worker PIDs visible in DevTools.
+  experimental: {
+    cpus: 1,
+  },
   webpack: (config, { isServer }) => {
     // Suppress AsyncLocalStorage warnings in WebContainer environments
     if (!isServer) {
@@ -85,6 +90,8 @@ const nextConfig: NextConfig = {
         'async_hooks': false,
       };
     }
+    // Limit webpack worker threads to 1 to prevent Worker PID explosion
+    config.parallelism = 1;
     return config;
   },
 };

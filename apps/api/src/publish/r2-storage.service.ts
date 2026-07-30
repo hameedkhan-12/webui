@@ -172,7 +172,7 @@ async getFile(key: string): Promise<R2File | null> {
     };
   } catch (error) {
     // NoSuchKey means file doesn't exist — return null instead of throwing
-    if (error?.name === 'NoSuchKey') {
+    if (error === 'NoSuchKey') {
       return null;
     }
     throw error;

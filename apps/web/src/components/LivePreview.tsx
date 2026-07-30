@@ -85,16 +85,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     return baseUrl + (urlPath === "/" ? "" : urlPath);
   }, [baseUrl, urlPath]);
 
-  const cacheBust = React.useMemo(() => {
-    return `t=${Date.now()}_${iframeKey}`;
-  }, [iframeKey]);
-
   const iframeSrc = React.useMemo(() => {
     if (!useWebContainerPreview) return undefined;
-    const base = previewUrl + (urlPath === "/" ? "" : urlPath);
-    const separator = base.includes("?") ? "&" : "?";
-    return `${base}${separator}${cacheBust}`;
-  }, [useWebContainerPreview, previewUrl, urlPath, cacheBust]);
+    return previewUrl + (urlPath === "/" ? "" : urlPath);
+  }, [useWebContainerPreview, previewUrl, urlPath]);
 
   React.useEffect(() => {
     if (baseUrl) {
@@ -182,7 +176,6 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       }
 
       if (data.type === "ELEMENT_SELECTED") {
-        console.log('[LivePreview] Received ELEMENT_SELECTED:', data.id, data.tagName);
         onSelectElement({
           id: data.id,
           tagName: data.tagName,
@@ -221,80 +214,165 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   ]);
 
   // Inject inspector script directly into the live iframe when design mode activates.
-  // This handles the case where layout.tsx was mounted before the inspector was added.
   const RUNTIME_INSPECTOR = React.useMemo(() => `
 (function() {
-  if (window.__inspectorInjected) {
-    // Already injected — just ack again so parent stops polling
-    window.parent.postMessage({type:'INSPECTOR_READY'},'*');
+  if (typeof window === 'undefined') return;
+
+  if (window.__auraInspectorLoaded) {
+    try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
     return;
   }
-  window.__inspectorInjected = true;
+  window.__auraInspectorLoaded = true;
   window.__designMode = true;
-  // Ack to parent immediately so it stops polling
-  window.parent.postMessage({type:'INSPECTOR_READY'},'*');
-  var idCounter = 5000;
-  var style = document.createElement('style');
-  style.innerHTML = '.designer-hover{outline:1.5px dashed rgba(168,85,247,0.6)!important;outline-offset:-1.5px!important;cursor:pointer!important}.designer-selected{outline:2px solid #a855f7!important;outline-offset:-2px!important}.designer-dragover{outline:2.5px dashed #a855f7!important;outline-offset:-2.5px!important;background-color:rgba(168,85,247,0.15)!important}';
-  document.head.appendChild(style);
-  window.addEventListener('message',function(e){
-    if(!e.data)return;
-    if(e.data.type==='SET_DESIGN_MODE')window.__designMode=!!e.data.enabled;
-    if(e.data.type==='INJECT_INSPECTOR'){
-      // Re-ack on every INJECT_INSPECTOR so parent polling always gets a response
-      window.parent.postMessage({type:'INSPECTOR_READY'},'*');
+
+  var captureLog = function(level) {
+    var original = console[level];
+    return function() {
+      var args = Array.prototype.slice.call(arguments);
+      if (typeof original === 'function') {
+        try { original.apply(console, args); } catch(err) {}
+      }
+      try {
+        window.parent.postMessage({
+          type: 'IFRAME_CONSOLE',
+          level: level,
+          message: args.map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')
+        }, '*');
+      } catch(e) {}
+    };
+  };
+  console.log   = captureLog('log');
+  console.error = captureLog('error');
+  console.warn  = captureLog('warn');
+
+  var originalOnError = window.onerror;
+  window.onerror = function(message, source, lineno, colno, error) {
+    if (typeof originalOnError === 'function') {
+      try { originalOnError.apply(window, arguments); } catch(err) {}
     }
-    if(e.data.type==='SELECT_ELEMENT'){
-      document.querySelectorAll('.designer-selected').forEach(function(x){x.classList.remove('designer-selected');});
-      if(e.data.id){
-        var el=document.querySelector('[data-id="'+e.data.id+'"]');
-        if(el){el.classList.add('designer-selected');el.scrollIntoView({block:'nearest',behavior:'smooth'});}
+    try {
+      window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*');
+    } catch(e) {}
+    return true;
+  };
+
+  var style = document.createElement('style');
+  style.id = 'aura-inspector-styles';
+  style.innerHTML = [
+    '.designer-hover { outline: 2px dashed #a855f7 !important; outline-offset: -2px !important; cursor: pointer !important; }',
+    '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; box-shadow: 0 0 0 2px rgba(168,85,247,0.3) !important; }'
+  ].join('\\n');
+  
+  var injectStyle = function() {
+    if (document.head && !document.getElementById('aura-inspector-styles')) {
+      document.head.appendChild(style);
+    }
+  };
+  if (document.head) { injectStyle(); }
+  else { window.addEventListener('DOMContentLoaded', injectStyle); }
+
+  try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
+
+  window.addEventListener('message', function(e) {
+    if (!e.data || typeof e.data !== 'object') return;
+    if (e.data.type === 'SET_DESIGN_MODE') {
+      window.__designMode = !!e.data.enabled;
+      if (!window.__designMode) {
+        document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
+      }
+    }
+    if (e.data.type === 'INJECT_INSPECTOR') {
+      if (typeof e.data.script === 'string') {
+        try { (0, eval)(e.data.script); } catch(err) {}
+      }
+      try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(err) {}
+    }
+    if (e.data.type === 'SELECT_ELEMENT') {
+      document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
+      if (e.data.id) {
+        var el = document.querySelector('[data-aura-id="' + e.data.id + '"]') || document.querySelector('[data-id="' + e.data.id + '"]');
+        if (el) {
+          el.classList.add('designer-selected');
+        }
       }
     }
   });
-  var SKIP=new Set(['HTML','HEAD','BODY','SCRIPT','STYLE','NOSCRIPT','SVG','PATH','DEFS','SYMBOL','G','USE']);
-  function wire(el){
-    if(el.dataset.inspectorWired)return;
-    el.dataset.inspectorWired='true';
-    if(!el.getAttribute('data-id'))el.setAttribute('data-id','rt-'+(idCounter++));
-    var id=el.getAttribute('data-id');
-    el.addEventListener('mouseenter',function(e){if(!window.__designMode)return;e.stopPropagation();el.classList.add('designer-hover');});
-    el.addEventListener('mouseleave',function(e){e.stopPropagation();el.classList.remove('designer-hover');});
-    el.addEventListener('click',function(e){
-      if(!window.__designMode)return;
-      e.preventDefault();e.stopPropagation();
-      document.querySelectorAll('.designer-selected').forEach(function(x){x.classList.remove('designer-selected');});
-      el.classList.add('designer-selected');
-      window.parent.postMessage({type:'ELEMENT_SELECTED',id:id,tagName:el.tagName,text:(el.innerText||'').slice(0,200),classes:Array.prototype.filter.call(el.classList,function(c){return c!=='designer-hover'&&c!=='designer-selected'&&c!=='designer-dragover';})},'*');
-    });
+
+  var SKIP_TAGS = new Set(['HTML', 'HEAD', 'BODY', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'DEFS', 'SYMBOL', 'G', 'USE']);
+  var idCounter = 5000;
+
+  function getCleanId(target) {
+    var id = target.getAttribute('data-aura-id') || target.getAttribute('data-id');
+    if (!id) {
+      id = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2, 7);
+      target.setAttribute('data-aura-id', id);
+      target.setAttribute('data-id', id);
+    }
+    return id;
   }
-  setInterval(function(){
-    if(!document.body)return;
-    Array.prototype.slice.call(document.body.querySelectorAll('*')).forEach(function(el){
-      if(SKIP.has(el.tagName))return;
-      var r=el.getBoundingClientRect();
-      if(r.width>4&&r.height>4)wire(el);
+
+  window.addEventListener('mouseover', function(e) {
+    if (!window.__designMode) return;
+    var target = e.target;
+    if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
+    document.querySelectorAll('.designer-hover').forEach(function(x) {
+      if (x !== target) x.classList.remove('designer-hover');
     });
-  },800);
+    target.classList.add('designer-hover');
+  }, true);
+
+  window.addEventListener('mouseout', function(e) {
+    if (!window.__designMode) return;
+    if (e.target && e.target.classList) {
+      e.target.classList.remove('designer-hover');
+    }
+  }, true);
+
+  window.addEventListener('click', function(e) {
+    if (!window.__designMode) return;
+    var target = e.target;
+    if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+      e.stopImmediatePropagation();
+    }
+
+    document.querySelectorAll('.designer-selected, .designer-hover').forEach(function(x) {
+      x.classList.remove('designer-selected', 'designer-hover');
+    });
+    target.classList.add('designer-selected');
+
+    var id = getCleanId(target);
+    var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
+      return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
+    });
+
+    try {
+      window.parent.postMessage({
+        type: 'ELEMENT_SELECTED',
+        id: id,
+        tagName: target.tagName,
+        text: (target.innerText || target.textContent || '').trim().slice(0, 200),
+        classes: classList
+      }, '*');
+    } catch(err) {}
+  }, true);
+
 })();
   `, []);
 
   // suppress unused warning — inspectorReady is consumed by the polling logic via ref
   void inspectorReady;
 
-  // ── Reliable inspector injection via polling ──────────────────────────────────
-  // We cannot rely on a single postMessage shot because:
-  //   a) The iframe's message listener may not be registered yet (fast cache load)
-  //   b) React 19 App Router may silently drop <script dangerouslySetInnerHTML> in layout.tsx
-  // Strategy: poll every 800ms sending INJECT_INSPECTOR until the iframe acks with INSPECTOR_READY.
-  // Reset the ack state whenever the iframe navigates (onLoad fires).
+  // ── Polling to inject inspector script into the iframe ────────────────────────
   const pollingRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const designModeRef = React.useRef(designMode);
   designModeRef.current = designMode;
 
   const stopPolling = React.useCallback(() => {
     if (pollingRef.current !== null) {
-      console.log('[LivePreview] Stopping polling');
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
@@ -304,18 +382,27 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     stopPolling();
     inspectorReadyRef.current = false;
     setInspectorReady(false);
-    console.log('[LivePreview] Starting polling loop...');
 
+    // Limit polling attempts — give up after 15s (18 × 800ms) to avoid infinite loops.
+    // The overlay-based selection works regardless of inspector ack.
+    let attempts = 0;
     pollingRef.current = setInterval(() => {
       const win = iframeRef.current?.contentWindow;
-      if (!win) return;
+      if (!win || attempts++ > 18) { stopPolling(); return; }
 
-      console.log('[LivePreview] Polling tick: posting SET_DESIGN_MODE =', designModeRef.current, 'ready =', inspectorReadyRef.current);
-      // Send design mode on every tick regardless of ack
       win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designModeRef.current }, '*');
 
-      // Keep injecting inspector until acked
       if (!inspectorReadyRef.current) {
+        // Try direct DOM injection first (works if same-origin)
+        try {
+          const doc = iframeRef.current?.contentDocument;
+          if (doc && doc.head && !doc.getElementById('aura-inspector-script')) {
+            const script = doc.createElement('script');
+            script.id = 'aura-inspector-script';
+            script.textContent = RUNTIME_INSPECTOR;
+            doc.head.appendChild(script);
+          }
+        } catch (_) { /* cross-origin — use postMessage fallback */ }
         win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
       } else {
         stopPolling();
@@ -323,47 +410,31 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     }, 800);
   }, [stopPolling, RUNTIME_INSPECTOR]);
 
-  // Start polling when iframe loads a new page
   const handleIframeLoad = React.useCallback(() => {
-    console.log('[LivePreview] iframe onLoad fired');
     startPolling();
   }, [startPolling]);
 
-  // Re-send design mode immediately when it changes (user switches Design ↔ Interact)
   React.useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    console.log('[LivePreview] designMode changed to:', designMode, 'posting SET_DESIGN_MODE immediately');
     win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designMode }, '*');
-    // If switching to design mode and inspector was previously ready, just re-enable
-    // If not ready yet, polling will handle it
     if (designMode && !inspectorReadyRef.current) {
-      console.log('[LivePreview] switching to design mode and not ready yet, posting RUNTIME_INSPECTOR');
       win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
     }
   }, [designMode, RUNTIME_INSPECTOR]);
 
-  // Kick off initial polling when WebContainer preview first becomes available
   React.useEffect(() => {
-    if (devServerActive && useWebContainerPreview) {
-      console.log('[LivePreview] Preview active, initiating startPolling');
-      startPolling();
-    }
+    if (devServerActive && useWebContainerPreview) startPolling();
     return stopPolling;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devServerActive, useWebContainerPreview]);
 
-  // Cleanup on unmount
   React.useEffect(() => stopPolling, [stopPolling]);
 
   React.useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (win) {
-      console.log('[LivePreview] selectedElement changed, posting SELECT_ELEMENT:', selectedElement?.id);
-      win.postMessage({
-        type: "SELECT_ELEMENT",
-        id: selectedElement?.id || null
-      }, "*");
+      win.postMessage({ type: "SELECT_ELEMENT", id: selectedElement?.id || null }, "*");
     }
   }, [selectedElement]);
 
@@ -813,13 +884,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             ))}
           </div>
           <span
-            className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${
-              devServerActive
-                ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/5"
-                : isBootingPreview
-                  ? "border-amber-500/30 text-amber-400 bg-amber-500/5"
-                  : "border-white/10 text-slate-600"
-            }`}
+            className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${devServerActive
+              ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/5"
+              : isBootingPreview
+                ? "border-amber-500/30 text-amber-400 bg-amber-500/5"
+                : "border-white/10 text-slate-600"
+              }`}
           >
             {devServerActive
               ? "Live"
@@ -910,17 +980,19 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
           <div
             className={`h-full max-h-full bg-white/2 border border-white/10 rounded-lg overflow-hidden shadow-xl transition-all ${getWidthClass()}`}
           >
-            <iframe
-              key={iframeKey}
-              ref={iframeRef}
-              title="App preview"
-              src={iframeSrc}
-              srcDoc={!isWebContainerMode ? getIframeSrcDoc() : undefined}
-              className="w-full h-full min-h-50 bg-[#070913]"
-              allow="cross-origin-isolated"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
-              onLoad={handleIframeLoad}
-            />
+            <div className="relative w-full h-full">
+              <iframe
+                key={iframeKey}
+                ref={iframeRef}
+                title="App preview"
+                src={iframeSrc}
+                srcDoc={!isWebContainerMode ? getIframeSrcDoc() : undefined}
+                className="w-full h-full min-h-50 bg-[#070913]"
+                allow="cross-origin-isolated"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                onLoad={handleIframeLoad}
+              />
+            </div>
           </div>
         )}
       </div>

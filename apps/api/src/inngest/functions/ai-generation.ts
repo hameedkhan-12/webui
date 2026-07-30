@@ -142,8 +142,8 @@ export function buildCodeGenPrompt(prompt: string, context: any): string {
   const fileContext =
     existingFiles.length > 0
       ? `\n\nExisting project files (for context):\n${existingFiles
-          .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
-          .join('\n\n')}`
+        .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
+        .join('\n\n')}`
       : '';
 
   return `You are a world-class principal React / Next.js design engineer. The user wants you to build or edit a web application.
@@ -181,7 +181,7 @@ Follow these standards (Bolt.ai Professional Standard):
 
 4. Critical Version Requirements for WebContainer Compatibility:
    - If generating or updating package.json, ALWAYS use these exact, pinned versions (do NOT use ranges or "latest"):
-     * "next": "15.4.1"
+     * "next": "14.2.5"
      * "react": "18.2.0"
      * "react-dom": "18.2.0"
      * "typescript": "5.3.3"
@@ -191,6 +191,13 @@ Follow these standards (Bolt.ai Professional Standard):
    - Do NOT use "next/headers" or server actions that call headers() or cookies() since they are incompatible with the WebContainer AsyncLocalStorage.
    - Do NOT use "next/font" (requires Node.js native font subsetting not in WebContainer).
    - Prefer 'use client' components for all interactive elements.
+   - NEVER create or modify "next.config.ts" — TypeScript config is a Next.js 15+ feature. Always use "next.config.mjs" with plain ESM JavaScript (/** @type {import('next').NextConfig} */ JSDoc annotation instead of TypeScript types).
+
+
+5. Visual Inspector & CMS Tagging (CRITICAL):
+   - You MUST assign a unique \`data-id\` attribute to EVERY JSX element you write (e.g. \`<main data-id="main-root">\`, \`<h1 data-id="hero-title">\`, \`<button data-id="btn-cta">\`, \`<div data-id="card-1">\`).
+   - Use meaningful IDs derived from the component context (e.g. \`header-logo\`, \`nav-item-home\`, \`stat-value-1\`, \`footer-link-about\`).
+   - This is strictly required so the visual design editor & CMS engine can select and edit elements.
 
 Rules:
 1. Follow the Bolt.ai Professional Standard above exactly, including the pinned dependency versions.

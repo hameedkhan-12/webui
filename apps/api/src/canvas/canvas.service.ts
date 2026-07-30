@@ -123,7 +123,7 @@ export class CanvasService {
 
     let elements = canvas.elements;
     if (!includeHidden) {
-      elements = elements.filter((el) => !el.hidden);
+      elements = elements.filter((el: any) => !el.hidden);
     }
 
     return {

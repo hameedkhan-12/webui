@@ -12,18 +12,5 @@
     "include": [
         "src/**/*"
     ],
-    "references": [
-        {
-            "path": "../shared"
-        },
-        {
-            "path": "../aura-kernel"
-        },
-        {
-            "path": "../component-registry"
-        },
-        {
-            "path": "../schema-engine"
-        }
-    ]
+    "references": []
 }

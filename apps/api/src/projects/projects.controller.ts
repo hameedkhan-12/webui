@@ -10,8 +10,8 @@ import {
   Version,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
-import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
-import { CurrentUser } from 'src/decorators/current-user.decorator';
+import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
+import { CurrentUser } from '../decorators/current-user.decorator';
 import { type User } from '@webra/database';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';

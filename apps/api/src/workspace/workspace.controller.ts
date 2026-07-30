@@ -11,8 +11,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { WorkspaceService } from './workspace.service';
-import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
-import { CurrentUser } from 'src/decorators/current-user.decorator';
+import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
+import { CurrentUser } from '../decorators/current-user.decorator';
 
 // The shape returned by ClerkStrategy → UsersService.syncUser → Prisma User
 interface AuthUser {
