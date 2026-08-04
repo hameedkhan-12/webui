@@ -1,5 +1,5 @@
 // apps/web/src/lib/operationReducer.ts
-import { Operation, WorkspaceFiles } from '@repo/shared';
+import { Operation, WorkspaceFiles } from "@repo/shared";
 import {
   insertElement,
   insertSibling,
@@ -11,8 +11,55 @@ import {
   setClasses,
   tagWithCounter,
   AstMutationError,
-} from '@aura/ast-engine';
-import { normalizePath, stubForNewFile, deletePathPrefix, removeFolderFromList } from './workspaceFs';
+} from "@aura/ast-engine";
+import {
+  normalizePath,
+  stubForNewFile,
+  deletePathPrefix,
+  removeFolderFromList,
+} from "./workspaceFs";
+
+/**
+ * The click handler currently always reports filePath as APP_ENTRY
+ * (src/app/page.tsx), regardless of which file the clicked element's JSX
+ * actually lives in -- elements inside sub-components (ActionCard.tsx,
+ * Sidebar.tsx, etc.) get the WRONG filePath, causing the AST engine to
+ * correctly fail to find them ("No element found with data-id=...") since
+ * it's searching the wrong file entirely.
+ *
+ * data-id values are minted from a single globally-incrementing counter
+ * across an entire AI generation pass (see useAI.ts's `currentCounter`),
+ * so they're unique PROJECT-WIDE, not just per-file. Rather than trusting
+ * the (possibly wrong) filePath the caller supplied, verify it first, and
+ * fall back to searching the rest of the project for the file that
+ * actually contains this id.
+ */
+function resolveFileForAuraId(
+  files: WorkspaceFiles,
+  guessedFilePath: string,
+  auraId: string,
+): string | null {
+  const idAttrPattern = new RegExp(`data-(?:aura-)?id=["']${auraId}["']`);
+
+  // Fast path: trust the guess first, avoids scanning every file on every
+  // edit for the common case where it's actually correct.
+  const guessed = files[guessedFilePath];
+  if (guessed && idAttrPattern.test(guessed.content)) {
+    return guessedFilePath;
+  }
+
+  // Fallback: the guess was wrong (e.g. element lives in a sub-component) --
+  // search every source file for the real owner.
+  for (const [path, file] of Object.entries(files)) {
+    if (path === guessedFilePath) continue; // already checked above
+    if (!/\.(tsx|jsx|ts|js)$/.test(path)) continue;
+    if (idAttrPattern.test(file.content)) {
+      return path;
+    }
+  }
+
+  return null;
+}
 
 export interface ReducerResult {
   files: WorkspaceFiles;
@@ -55,7 +102,9 @@ function safeMutate(label: string, fn: () => string, fallback: string): string {
     return fn();
   } catch (err) {
     if (err instanceof AstMutationError) {
-      console.error(`[operationReducer] ${label} refused for aura-id "${err.auraId}": ${err.message}`);
+      console.error(
+        `[operationReducer] ${label} refused for aura-id "${err.auraId}": ${err.message}`,
+      );
       return fallback;
     }
     throw err;
@@ -64,37 +113,49 @@ function safeMutate(label: string, fn: () => string, fallback: string): string {
 
 export function applyOperation(
   state: { files: WorkspaceFiles; folders: string[]; elementCounter: number },
-  op: Operation
+  op: Operation,
 ): ReducerResult {
   const { files, folders, elementCounter } = state;
 
   switch (op.type) {
-    case 'INSERT_COMPONENT': {
-      const appFile = files['src/app/page.tsx'];
+    case "INSERT_COMPONENT": {
+      const appFile = files["src/app/page.tsx"];
       if (!appFile) return state;
 
-      const { code: taggedCode, newCounter } = tagWithCounter(op.payload.code, elementCounter);
+      const { code: taggedCode, newCounter } = tagWithCounter(
+        op.payload.code,
+        elementCounter,
+      );
       const targetId = op.payload.targetId;
 
       const nextContent = safeMutate(
-        'INSERT_COMPONENT',
+        "INSERT_COMPONENT",
         () => {
           if (!targetId) {
             return insertIntoFileRoot(appFile.content, taggedCode);
           }
-          if (op.payload.position === 'inside') {
-            return insertElement(appFile.content, { parentAuraId: targetId, elementCode: taggedCode, position: 'end' });
+          if (op.payload.position === "inside") {
+            return insertElement(appFile.content, {
+              parentAuraId: targetId,
+              elementCode: taggedCode,
+              position: "end",
+            });
           }
-          return insertSibling(appFile.content, targetId, taggedCode, op.payload.position);
+          return insertSibling(
+            appFile.content,
+            targetId,
+            taggedCode,
+            op.payload.position,
+          );
         },
-        appFile.content
+        appFile.content,
       );
 
       return {
         ...state,
         files: {
           ...files,
-          'src/app/page.tsx': {
+          "src/app/page.tsx": {
             ...appFile,
             content: nextContent,
           },
@@ -103,21 +164,21 @@ export function applyOperation(
       };
     }
 
-    case 'REMOVE_COMPONENT': {
-      const appFile = files['src/app/page.tsx'];
+    case "REMOVE_COMPONENT": {
+      const appFile = files["src/app/page.tsx"];
       if (!appFile) return state;
 
       const nextContent = safeMutate(
-        'REMOVE_COMPONENT',
+        "REMOVE_COMPONENT",
         () => deleteElement(appFile.content, op.payload.nodeId),
-        appFile.content
+        appFile.content,
       );
 
       return {
         ...state,
         files: {
           ...files,
-          'src/app/page.tsx': {
+          "src/app/page.tsx": {
             ...appFile,
             content: nextContent,
           },
@@ -125,21 +186,27 @@ export function applyOperation(
       };
     }
 
-    case 'MOVE_COMPONENT': {
-      const appFile = files['src/app/page.tsx'];
+    case "MOVE_COMPONENT": {
+      const appFile = files["src/app/page.tsx"];
       if (!appFile) return state;
 
       const nextContent = safeMutate(
-        'MOVE_COMPONENT',
-        () => moveElement(appFile.content, op.payload.nodeId, op.payload.targetId, 'end'),
-        appFile.content
+        "MOVE_COMPONENT",
+        () =>
+          moveElement(
+            appFile.content,
+            op.payload.nodeId,
+            op.payload.targetId,
+            "end",
+          ),
+        appFile.content,
       );
 
       return {
         ...state,
         files: {
           ...files,
-          'src/app/page.tsx': {
+          "src/app/page.tsx": {
             ...appFile,
             content: nextContent,
           },
@@ -147,61 +214,77 @@ export function applyOperation(
       };
     }
 
-    case 'UPDATE_PROP': {
-      const { nodeId, filePath, key, value } = op.payload;
-      const file = files[filePath];
-      if (!file) return state;
+    case "UPDATE_PROP": {
+      const { nodeId, filePath: guessedFilePath, key, value } = op.payload;
+      const resolvedPath = resolveFileForAuraId(files, guessedFilePath, nodeId);
+      if (!resolvedPath) {
+        console.error(
+          `[operationReducer] UPDATE_PROP: could not find any file containing data-id="${nodeId}"`,
+        );
+        return state;
+      }
+      const file = files[resolvedPath]!;
 
-      // 'text' is special-cased to mean "the element's text children", not a
-      // JSX attribute named "text" -- matches the previous engine's semantic.
-      // Every other key is now a real JSX attribute update (the previous
-      // engine silently no-op'd for any key other than 'text' -- this is a
-      // genuine capability upgrade, not just a swap).
       const nextContent = safeMutate(
-        'UPDATE_PROP',
+        "UPDATE_PROP",
         () =>
-          key === 'text'
-            ? updateChildren(file.content, { file: filePath, line: 0, auraId: nodeId, value: String(value) })
-            : updateProp(file.content, { file: filePath, line: 0, auraId: nodeId, prop: key, value }),
-        file.content
+          key === "text"
+            ? updateChildren(file.content, {
+                file: resolvedPath,
+                line: 0,
+                auraId: nodeId,
+                value: String(value),
+              })
+            : updateProp(file.content, {
+                file: resolvedPath,
+                line: 0,
+                auraId: nodeId,
+                prop: key,
+                value,
+              }),
+        file.content,
       );
 
       return {
         ...state,
         files: {
           ...files,
-          [filePath]: {
+          [resolvedPath]: {
             ...file,
             content: nextContent,
           },
         },
       };
     }
-
-    case 'UPDATE_CLASS': {
-      const { nodeId, filePath, classes } = op.payload;
-      const file = files[filePath];
-      if (!file) return state;
+    case "UPDATE_CLASS": {
+      const { nodeId, filePath: guessedFilePath, classes } = op.payload;
+      const resolvedPath = resolveFileForAuraId(files, guessedFilePath, nodeId);
+      if (!resolvedPath) {
+        console.error(
+          `[operationReducer] UPDATE_CLASS: could not find any file containing data-id="${nodeId}"`,
+        );
+        return state;
+      }
+      const file = files[resolvedPath]!;
 
       const nextContent = safeMutate(
-        'UPDATE_CLASS',
+        "UPDATE_CLASS",
         () => setClasses(file.content, nodeId, classes),
-        file.content
+        file.content,
       );
 
       return {
         ...state,
         files: {
           ...files,
-          [filePath]: {
+          [resolvedPath]: {
             ...file,
             content: nextContent,
           },
         },
       };
     }
-
-    case 'CREATE_FILE': {
+    case "CREATE_FILE": {
       const path = normalizePath(op.payload.path);
       if (!path) return state;
 
@@ -211,7 +294,7 @@ export function applyOperation(
       const newFiles = {
         ...files,
         [path]: {
-          name: path.split('/').pop() || path,
+          name: path.split("/").pop() || path,
           path,
           // Preserve existing meta if the file already existed
           ...(existing ? existing : {}),
@@ -227,7 +310,7 @@ export function applyOperation(
       };
     }
 
-    case 'DELETE_FILE': {
+    case "DELETE_FILE": {
       const path = normalizePath(op.payload.path);
       const newFiles = { ...files };
       delete newFiles[path];
@@ -238,7 +321,7 @@ export function applyOperation(
       };
     }
 
-    case 'CREATE_FOLDER': {
+    case "CREATE_FOLDER": {
       const path = normalizePath(op.payload.path);
       if (!path || files[path] || folders.includes(path)) return state;
 
@@ -248,7 +331,7 @@ export function applyOperation(
       };
     }
 
-    case 'DELETE_FOLDER': {
+    case "DELETE_FOLDER": {
       const path = normalizePath(op.payload.path);
       const nextFiles = deletePathPrefix(files, path);
       const nextFolders = removeFolderFromList(folders, path);
@@ -260,7 +343,7 @@ export function applyOperation(
       };
     }
 
-    case 'UPDATE_FILE_RAW': {
+    case "UPDATE_FILE_RAW": {
       const path = normalizePath(op.payload.path);
       const file = files[path];
       if (!file) return state;
@@ -277,7 +360,7 @@ export function applyOperation(
       };
     }
 
-    case 'BATCH': {
+    case "BATCH": {
       let current = { files, folders, elementCounter };
       for (const subOp of op.payload.ops) {
         current = applyOperation(current, subOp);

@@ -90,6 +90,7 @@ export interface ComputedStyle {
 
 export interface SelectedElement {
   id: string; // The data-id attribute to identify the JSX element uniquely
+  sourceId: string | null; // The static data-id/data-aura-id baked into AST/JSX
   tagName: string;
   text: string;
   classes: string[];

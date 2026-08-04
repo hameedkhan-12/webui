@@ -1,4 +1,4 @@
-// apps/api/src/modules/code-gen/services/template.service.ts
+﻿// apps/api/src/modules/code-gen/services/template.service.ts
 
 import { Injectable, Logger } from '@nestjs/common';
 import {

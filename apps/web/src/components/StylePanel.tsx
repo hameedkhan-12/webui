@@ -41,7 +41,9 @@ import { SelectedElement } from "@repo/shared";
 
 function postToPreview(message: Record<string, unknown>) {
   try {
-    window.dispatchEvent(new CustomEvent('aura:post-to-preview', { detail: message }));
+    window.dispatchEvent(
+      new CustomEvent("aura:post-to-preview", { detail: message }),
+    );
   } catch {
     // ignore
   }
@@ -60,9 +62,11 @@ function findClass(classes: string[], prefixes: string[]): string | null {
 function replaceClass(
   classes: string[],
   prefixes: string[],
-  newValue: string | null
+  newValue: string | null,
 ): string[] {
-  const filtered = classes.filter((c) => !prefixes.some((p) => c.startsWith(p)));
+  const filtered = classes.filter(
+    (c) => !prefixes.some((p) => c.startsWith(p)),
+  );
   return newValue ? [...filtered, newValue] : filtered;
 }
 
@@ -186,7 +190,21 @@ const SpacingBox: React.FC<{
   classes: string[];
   onChange: (classes: string[]) => void;
 }> = ({ classes, onChange }) => {
-  const spacingOpts = ["0", "1", "2", "3", "4", "5", "6", "8", "10", "12", "16", "20", "24"];
+  const spacingOpts = [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "8",
+    "10",
+    "12",
+    "16",
+    "20",
+    "24",
+  ];
 
   const getVal = (prefix: string) => {
     const found = classes.find((c) => c.startsWith(prefix + "-"));
@@ -198,9 +216,17 @@ const SpacingBox: React.FC<{
     onChange(val === "0" ? filtered : [...filtered, `${prefix}-${val}`]);
   };
 
-  const SpacingField = ({ prefix, label }: { prefix: string; label: string }) => (
+  const SpacingField = ({
+    prefix,
+    label,
+  }: {
+    prefix: string;
+    label: string;
+  }) => (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-[8px] text-slate-600 uppercase font-mono">{label}</span>
+      <span className="text-[8px] text-slate-600 uppercase font-mono">
+        {label}
+      </span>
       <select
         value={getVal(prefix)}
         onChange={(e) => setVal(prefix, e.target.value)}
@@ -242,7 +268,9 @@ const SpacingBox: React.FC<{
                   border: "1px solid rgba(168,85,247,0.4)",
                 }}
               >
-                <span className="text-[7px] text-purple-300 font-mono">DOM</span>
+                <span className="text-[7px] text-purple-300 font-mono">
+                  DOM
+                </span>
               </div>
               <SpacingField prefix="pr" label="R" />
             </div>
@@ -264,7 +292,7 @@ interface StylePanelProps {
   onUpdateElement: (
     filePath: string,
     elementId: string,
-    updatedProps: { text?: string; classes?: string[] }
+    updatedProps: { text?: string; classes?: string[] },
   ) => void;
 }
 
@@ -280,35 +308,58 @@ export const StylePanel: React.FC<StylePanelProps> = ({
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
         <div
           className="w-12 h-12 rounded-full border flex items-center justify-center mb-3 text-slate-600"
-          style={{ borderColor: "rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}
+          style={{
+            borderColor: "rgba(255,255,255,0.06)",
+            background: "rgba(255,255,255,0.02)",
+          }}
         >
           <Layers size={18} className="animate-pulse text-purple-400" />
         </div>
-        <p className="text-[11px] font-semibold text-slate-300">No element selected</p>
+        <p className="text-[11px] font-semibold text-slate-300">
+          No element selected
+        </p>
         <p className="text-[10px] text-slate-500 mt-1 leading-relaxed max-w-[180px]">
-          Click any element in the Live Preview in <strong className="text-purple-400">Design Mode</strong> to inspect and edit its styles
+          Click any element in the Live Preview in{" "}
+          <strong className="text-purple-400">Design Mode</strong> to inspect
+          and edit its styles
         </p>
       </div>
     );
   }
 
-  const { filePath, id, tagName, text, classes, computedStyle, rect } = selectedElement;
+  const {
+    filePath,
+    id,
+    sourceId,
+    tagName,
+    text,
+    classes,
+    computedStyle,
+    rect,
+  } = selectedElement;
 
-  // ── Instant DOM update + debounced file write ──────────────────────────────
   const update = (patch: { text?: string; classes?: string[] }) => {
-    // 1. Instant iframe DOM update via event bridge
     if (patch.text !== undefined) {
-      postToPreview({ type: 'SET_TEXT', id, text: patch.text });
+      postToPreview({ type: "SET_TEXT", id, text: patch.text });
     }
     if (patch.classes !== undefined) {
       const add = patch.classes.filter((c) => !classes.includes(c));
       const remove = classes.filter((c) => !patch.classes!.includes(c));
       if (add.length > 0 || remove.length > 0) {
-        postToPreview({ type: 'APPLY_CLASS', id, add, remove });
+        postToPreview({ type: "APPLY_CLASS", id, add, remove });
       }
     }
-    // 2. Debounced file write via the operation reducer
-    onUpdateElement(filePath, id, patch);
+
+    if (sourceId) {
+      onUpdateElement(filePath, sourceId, patch);
+    } else {
+      console.warn(
+        `[StylePanel] Element "${id}" has no source id -- this element's ` +
+          `visual edit cannot be saved to a file (tagging likely failed for ` +
+          `this element). The preview update above is visual-only and will ` +
+          `be lost on next reload.`,
+      );
+    }
   };
 
   const updateClasses = (prefixes: string[], newVal: string | null) =>
@@ -367,7 +418,9 @@ export const StylePanel: React.FC<StylePanelProps> = ({
           >
             {tagName.toLowerCase()}
           </span>
-          <span className="text-[10px] text-slate-400 font-mono truncate">{id}</span>
+          <span className="text-[10px] text-slate-400 font-mono truncate">
+            {sourceId ?? `${id} (unsaved)`}
+          </span>
         </div>
         <button
           type="button"
@@ -384,8 +437,18 @@ export const StylePanel: React.FC<StylePanelProps> = ({
           className="shrink-0 px-3 py-1 bg-black/40 border-b flex items-center justify-between text-[9px] font-mono text-slate-500"
           style={{ borderColor: "rgba(255,255,255,0.04)" }}
         >
-          <span>W: <strong className="text-purple-400">{Math.round(rect.width)}px</strong></span>
-          <span>H: <strong className="text-purple-400">{Math.round(rect.height)}px</strong></span>
+          <span>
+            W:{" "}
+            <strong className="text-purple-400">
+              {Math.round(rect.width)}px
+            </strong>
+          </span>
+          <span>
+            H:{" "}
+            <strong className="text-purple-400">
+              {Math.round(rect.height)}px
+            </strong>
+          </span>
           <span>X: {Math.round(rect.x)}</span>
           <span>Y: {Math.round(rect.y)}</span>
         </div>
@@ -394,7 +457,10 @@ export const StylePanel: React.FC<StylePanelProps> = ({
       {/* Scrollable Inspector Body */}
       <div
         className="flex-1 overflow-y-auto"
-        style={{ scrollbarWidth: "thin", scrollbarColor: "#262626 transparent" }}
+        style={{
+          scrollbarWidth: "thin",
+          scrollbarColor: "#262626 transparent",
+        }}
       >
         {/* Content Section */}
         {text !== undefined && (
@@ -419,7 +485,12 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               placeholder={computedStyle?.width ?? "auto"}
               onChange={(v) => {
                 updateClasses(["w-"], v || null);
-                postToPreview({ type: 'APPLY_STYLE', id, property: 'width', value: v });
+                postToPreview({
+                  type: "APPLY_STYLE",
+                  id,
+                  property: "width",
+                  value: v,
+                });
               }}
             />
             <InlineInput
@@ -428,13 +499,21 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               placeholder={computedStyle?.height ?? "auto"}
               onChange={(v) => {
                 updateClasses(["h-"], v || null);
-                postToPreview({ type: 'APPLY_STYLE', id, property: 'height', value: v });
+                postToPreview({
+                  type: "APPLY_STYLE",
+                  id,
+                  property: "height",
+                  value: v,
+                });
               }}
             />
           </div>
           <SelectInput
             label="Position"
-            value={findClass(classes, ["relative", "absolute", "fixed", "sticky"]) ?? "static"}
+            value={
+              findClass(classes, ["relative", "absolute", "fixed", "sticky"]) ??
+              "static"
+            }
             options={[
               { label: "Static", value: "static" },
               { label: "Relative", value: "relative" },
@@ -442,7 +521,12 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               { label: "Fixed", value: "fixed" },
               { label: "Sticky", value: "sticky" },
             ]}
-            onChange={(v) => updateClasses(["relative", "absolute", "fixed", "sticky"], v === "static" ? null : v)}
+            onChange={(v) =>
+              updateClasses(
+                ["relative", "absolute", "fixed", "sticky"],
+                v === "static" ? null : v,
+              )
+            }
           />
         </Section>
 
@@ -460,33 +544,75 @@ export const StylePanel: React.FC<StylePanelProps> = ({
             ]}
             onChange={(v) => {
               updateClasses(["flex", "grid", "block", "inline", "hidden"], v);
-              postToPreview({ type: 'APPLY_STYLE', id, property: 'display', value: v });
+              postToPreview({
+                type: "APPLY_STYLE",
+                id,
+                property: "display",
+                value: v,
+              });
             }}
           />
 
           {displayVal === "flex" && (
             <>
               <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Direction</span>
+                <span className="text-[10px] text-slate-500 block mb-1">
+                  Direction
+                </span>
                 <ToggleGroup
                   options={[
-                    { value: "flex-row", icon: <ArrowRight size={11} />, title: "Row" },
-                    { value: "flex-col", icon: <ArrowDown size={11} />, title: "Column" },
-                    { value: "flex-row-reverse", icon: <Minus size={11} />, title: "Row Reverse" },
+                    {
+                      value: "flex-row",
+                      icon: <ArrowRight size={11} />,
+                      title: "Row",
+                    },
+                    {
+                      value: "flex-col",
+                      icon: <ArrowDown size={11} />,
+                      title: "Column",
+                    },
+                    {
+                      value: "flex-row-reverse",
+                      icon: <Minus size={11} />,
+                      title: "Row Reverse",
+                    },
                   ]}
                   active={flexDirVal}
-                  onChange={(v) => updateClasses(["flex-row", "flex-col", "flex-row-reverse"], v)}
+                  onChange={(v) =>
+                    updateClasses(
+                      ["flex-row", "flex-col", "flex-row-reverse"],
+                      v,
+                    )
+                  }
                 />
               </div>
 
               <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Justify</span>
+                <span className="text-[10px] text-slate-500 block mb-1">
+                  Justify
+                </span>
                 <ToggleGroup
                   options={[
-                    { value: "justify-start", icon: <AlignStartVertical size={11} />, title: "Start" },
-                    { value: "justify-center", icon: <AlignCenterVertical size={11} />, title: "Center" },
-                    { value: "justify-end", icon: <AlignEndVertical size={11} />, title: "End" },
-                    { value: "justify-between", icon: <Minus size={11} />, title: "Space Between" },
+                    {
+                      value: "justify-start",
+                      icon: <AlignStartVertical size={11} />,
+                      title: "Start",
+                    },
+                    {
+                      value: "justify-center",
+                      icon: <AlignCenterVertical size={11} />,
+                      title: "Center",
+                    },
+                    {
+                      value: "justify-end",
+                      icon: <AlignEndVertical size={11} />,
+                      title: "End",
+                    },
+                    {
+                      value: "justify-between",
+                      icon: <Minus size={11} />,
+                      title: "Space Between",
+                    },
                   ]}
                   active={justifyVal}
                   onChange={(v) => updateClasses(["justify-"], v)}
@@ -494,13 +620,31 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               </div>
 
               <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Align Items</span>
+                <span className="text-[10px] text-slate-500 block mb-1">
+                  Align Items
+                </span>
                 <ToggleGroup
                   options={[
-                    { value: "items-start", icon: <AlignStartHorizontal size={11} />, title: "Start" },
-                    { value: "items-center", icon: <AlignCenterHorizontal size={11} />, title: "Center" },
-                    { value: "items-end", icon: <AlignEndHorizontal size={11} />, title: "End" },
-                    { value: "items-stretch", icon: <AlignCenterHorizontal size={11} />, title: "Stretch" },
+                    {
+                      value: "items-start",
+                      icon: <AlignStartHorizontal size={11} />,
+                      title: "Start",
+                    },
+                    {
+                      value: "items-center",
+                      icon: <AlignCenterHorizontal size={11} />,
+                      title: "Center",
+                    },
+                    {
+                      value: "items-end",
+                      icon: <AlignEndHorizontal size={11} />,
+                      title: "End",
+                    },
+                    {
+                      value: "items-stretch",
+                      icon: <AlignCenterHorizontal size={11} />,
+                      title: "Stretch",
+                    },
                   ]}
                   active={alignVal}
                   onChange={(v) => updateClasses(["items-"], v)}
@@ -512,10 +656,12 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 value={gapVal}
                 options={[
                   { label: "None", value: "" },
-                  ...["1", "2", "3", "4", "5", "6", "8", "10", "12"].map((v) => ({
-                    label: `gap-${v}`,
-                    value: `gap-${v}`,
-                  })),
+                  ...["1", "2", "3", "4", "5", "6", "8", "10", "12"].map(
+                    (v) => ({
+                      label: `gap-${v}`,
+                      value: `gap-${v}`,
+                    }),
+                  ),
                 ]}
                 onChange={(v) => updateClasses(["gap-"], v || null)}
               />
@@ -525,11 +671,18 @@ export const StylePanel: React.FC<StylePanelProps> = ({
 
         {/* Spacing Box Model */}
         <Section title="Spacing" icon={<Box size={11} />} defaultOpen={false}>
-          <SpacingBox classes={classes} onChange={(next) => update({ classes: next })} />
+          <SpacingBox
+            classes={classes}
+            onChange={(next) => update({ classes: next })}
+          />
         </Section>
 
         {/* Typography */}
-        <Section title="Typography" icon={<Type size={11} />} defaultOpen={false}>
+        <Section
+          title="Typography"
+          icon={<Type size={11} />}
+          defaultOpen={false}
+        >
           <SelectInput
             label="Size"
             value={textSizeVal}
@@ -546,8 +699,17 @@ export const StylePanel: React.FC<StylePanelProps> = ({
             ]}
             onChange={(v) =>
               updateClasses(
-                ["text-xs", "text-sm", "text-base", "text-lg", "text-xl", "text-2xl", "text-3xl", "text-4xl"],
-                v || null
+                [
+                  "text-xs",
+                  "text-sm",
+                  "text-base",
+                  "text-lg",
+                  "text-xl",
+                  "text-2xl",
+                  "text-3xl",
+                  "text-4xl",
+                ],
+                v || null,
               )
             }
           />
@@ -567,7 +729,10 @@ export const StylePanel: React.FC<StylePanelProps> = ({
 
           <SelectInput
             label="Align"
-            value={findClass(classes, ["text-left", "text-center", "text-right"]) ?? ""}
+            value={
+              findClass(classes, ["text-left", "text-center", "text-right"]) ??
+              ""
+            }
             options={[
               { label: "Default", value: "" },
               { label: "Left", value: "text-left" },
@@ -575,15 +740,24 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               { label: "Right", value: "text-right" },
             ]}
             onChange={(v) =>
-              updateClasses(["text-left", "text-center", "text-right", "text-justify"], v || null)
+              updateClasses(
+                ["text-left", "text-center", "text-right", "text-justify"],
+                v || null,
+              )
             }
           />
         </Section>
 
         {/* Appearance */}
-        <Section title="Appearance" icon={<Palette size={11} />} defaultOpen={false}>
+        <Section
+          title="Appearance"
+          icon={<Palette size={11} />}
+          defaultOpen={false}
+        >
           <div className="space-y-2">
-            <span className="text-[10px] text-slate-500 block">Background Presets</span>
+            <span className="text-[10px] text-slate-500 block">
+              Background Presets
+            </span>
             <div className="grid grid-cols-5 gap-1.5">
               {COLOR_PRESETS.map((preset) => {
                 const isActive = classes.includes(preset.tw);
@@ -594,7 +768,9 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                     title={preset.name}
                     onClick={() => updateClasses(["bg-"], preset.tw || null)}
                     className={`w-full aspect-square rounded-md border transition-all ${
-                      isActive ? "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#141414]" : ""
+                      isActive
+                        ? "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#141414]"
+                        : ""
                     }`}
                     style={{
                       background:
@@ -621,13 +797,19 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 { label: "XL", value: "rounded-xl" },
                 { label: "Full", value: "rounded-full" },
               ]}
-              onChange={(v) => updateClasses(["rounded-"], v === "rounded-none" ? null : v)}
+              onChange={(v) =>
+                updateClasses(["rounded-"], v === "rounded-none" ? null : v)
+              }
             />
           </div>
         </Section>
 
         {/* Tailwind Classes Manager */}
-        <Section title="Tailwind Classes" icon={<Sparkles size={11} />} defaultOpen={true}>
+        <Section
+          title="Tailwind Classes"
+          icon={<Sparkles size={11} />}
+          defaultOpen={true}
+        >
           <div className="space-y-2">
             <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto p-1.5 bg-black/40 rounded border border-white/5">
               {classes.map((c) => (
@@ -646,7 +828,9 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 </span>
               ))}
               {classes.length === 0 && (
-                <span className="text-[10px] text-slate-600 italic">No classes applied</span>
+                <span className="text-[10px] text-slate-600 italic">
+                  No classes applied
+                </span>
               )}
             </div>
 

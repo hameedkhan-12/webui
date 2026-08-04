@@ -14,7 +14,7 @@ export default clerkMiddleware(async (auth, req) => {
 
   // Signed-in user hitting auth pages → send to dashboard
   if (userId && isPublicRoute(req) && pathname !== "/") {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    return NextResponse.redirect(new URL("/projects", req.url));
   }
 
   // Signed-out user hitting protected route → send to sign-in

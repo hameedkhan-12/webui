@@ -13,18 +13,27 @@
  * user never touched, which would happen with a full-file regenerate.
  */
 
-import * as t from '@babel/types'
-import type { NodePath } from '@babel/traverse'
-import { traverse } from './babel-interop.js'
+import * as t from "@babel/types";
+import type { NodePath } from "@babel/traverse";
+import { traverse } from "./babel-interop.js";
 import type {
   UpdatePropOperation,
   UpdateStyleOperation,
   UpdateChildrenOperation,
   AddClassOperation,
   RemoveClassOperation,
-} from '@repo/shared'
-import { findOpeningElement, parseSource } from './ast.parser.js'
+} from "@repo/shared";
+import { findOpeningElement, parseSource } from "./ast.parser.js";
 
+const INTERNAL_ONLY_CLASSES = new Set([
+  "designer-hover",
+  "designer-selected",
+  "designer-dragover",
+]);
+
+function stripInternalClasses(classes: readonly string[]): string[] {
+  return classes.filter((c) => !INTERNAL_ONLY_CLASSES.has(c));
+}
 /**
  * Thrown when a target node is found, but its className (or other mutated
  * value) is written in a shape this engine can't safely rewrite without risk
@@ -36,21 +45,34 @@ import { findOpeningElement, parseSource } from './ast.parser.js'
  * or guessing and potentially corrupting working code.
  */
 export class AstMutationError extends Error {
-  constructor(message: string, readonly auraId: string) {
-    super(message)
-    this.name = 'AstMutationError'
+  constructor(
+    message: string,
+    readonly auraId: string,
+  ) {
+    super(message);
+    this.name = "AstMutationError";
   }
 }
 
 // ─── className helpers ──────────────────────────────────────────────────────
 
 type ClassNameInfo =
-  | { readonly kind: 'absent' }
-  | { readonly kind: 'string'; readonly value: string; readonly start: number; readonly end: number }
-  | { readonly kind: 'call-first-arg'; readonly value: string; readonly start: number; readonly end: number }
-  | { readonly kind: 'unsupported' }
+  | { readonly kind: "absent" }
+  | {
+      readonly kind: "string";
+      readonly value: string;
+      readonly start: number;
+      readonly end: number;
+    }
+  | {
+      readonly kind: "call-first-arg";
+      readonly value: string;
+      readonly start: number;
+      readonly end: number;
+    }
+  | { readonly kind: "unsupported" };
 
-const CLASS_HELPER_CALLEES = new Set(['cn', 'clsx', 'classNames', 'twMerge'])
+const CLASS_HELPER_CALLEES = new Set(["cn", "clsx", "classNames", "twMerge"]);
 
 /**
  * Inspect the className attribute on a JSXOpeningElement and classify it:
@@ -65,24 +87,27 @@ const CLASS_HELPER_CALLEES = new Set(['cn', 'clsx', 'classNames', 'twMerge'])
 function classifyClassName(node: t.JSXOpeningElement): ClassNameInfo {
   const attr = node.attributes.find(
     (a): a is t.JSXAttribute =>
-      t.isJSXAttribute(a) && t.isJSXIdentifier(a.name) && a.name.name === 'className'
-  )
-  if (!attr) return { kind: 'absent' }
-  if (attr.value == null) return { kind: 'unsupported' }
+      t.isJSXAttribute(a) &&
+      t.isJSXIdentifier(a.name) &&
+      a.name.name === "className",
+  );
+  if (!attr) return { kind: "absent" };
+  if (attr.value == null) return { kind: "unsupported" };
 
   if (t.isStringLiteral(attr.value)) {
-    if (attr.value.start == null || attr.value.end == null) return { kind: 'unsupported' }
+    if (attr.value.start == null || attr.value.end == null)
+      return { kind: "unsupported" };
     return {
-      kind: 'string',
+      kind: "string",
       value: attr.value.value,
       // +1/-1 to target the content INSIDE the quotes, not the quote chars.
       start: attr.value.start + 1,
       end: attr.value.end - 1,
-    }
+    };
   }
 
   if (t.isJSXExpressionContainer(attr.value)) {
-    const expr = attr.value.expression
+    const expr = attr.value.expression;
     if (
       t.isCallExpression(expr) &&
       t.isIdentifier(expr.callee) &&
@@ -90,22 +115,29 @@ function classifyClassName(node: t.JSXOpeningElement): ClassNameInfo {
       expr.arguments.length > 0 &&
       t.isStringLiteral(expr.arguments[0])
     ) {
-      const firstArg = expr.arguments[0] as t.StringLiteral
-      if (firstArg.start == null || firstArg.end == null) return { kind: 'unsupported' }
+      const firstArg = expr.arguments[0] as t.StringLiteral;
+      if (firstArg.start == null || firstArg.end == null)
+        return { kind: "unsupported" };
       return {
-        kind: 'call-first-arg',
+        kind: "call-first-arg",
         value: firstArg.value,
         start: firstArg.start + 1,
         end: firstArg.end - 1,
-      }
+      };
     }
     if (t.isStringLiteral(expr)) {
-      if (expr.start == null || expr.end == null) return { kind: 'unsupported' }
-      return { kind: 'string', value: expr.value, start: expr.start + 1, end: expr.end - 1 }
+      if (expr.start == null || expr.end == null)
+        return { kind: "unsupported" };
+      return {
+        kind: "string",
+        value: expr.value,
+        start: expr.start + 1,
+        end: expr.end - 1,
+      };
     }
   }
 
-  return { kind: 'unsupported' }
+  return { kind: "unsupported" };
 }
 
 /**
@@ -120,33 +152,41 @@ function classifyClassName(node: t.JSXOpeningElement): ClassNameInfo {
 function mutateClassName(
   source: string,
   auraId: string,
-  transform: (classes: string) => string
+  transform: (classes: string) => string,
 ): string {
-  const result = findOpeningElement(source, auraId)
+  const result = findOpeningElement(source, auraId);
   if (!result) {
-    throw new AstMutationError(`No element found with data-id="${auraId}"`, auraId)
+    throw new AstMutationError(
+      `No element found with data-id="${auraId}"`,
+      auraId,
+    );
   }
 
-  const info = classifyClassName(result.path.node)
+  const info = classifyClassName(result.path.node);
 
-  if (info.kind === 'absent') {
+  if (info.kind === "absent") {
     // No className yet -- create one via the same insert-before-close logic
     // as updateProp, using the transform against an empty starting string.
-    const newClasses = transform('').trim()
-    return insertOrReplaceAttr(source, result.path.node, 'className', JSON.stringify(newClasses))
+    const newClasses = transform("").trim();
+    return insertOrReplaceAttr(
+      source,
+      result.path.node,
+      "className",
+      JSON.stringify(newClasses),
+    );
   }
 
-  if (info.kind === 'unsupported') {
+  if (info.kind === "unsupported") {
     throw new AstMutationError(
       `className on element "${auraId}" is written in a form this engine can't safely rewrite ` +
         `(e.g. a ternary, template literal, or a helper call whose first argument isn't a plain string). ` +
         `Edit this element's classes directly in the code editor instead.`,
-      auraId
-    )
+      auraId,
+    );
   }
 
-  const newClasses = transform(info.value).trim()
-  return source.slice(0, info.start) + newClasses + source.slice(info.end)
+  const newClasses = transform(info.value).trim();
+  return source.slice(0, info.start) + newClasses + source.slice(info.end);
 }
 
 // ─── attribute insert/replace helper (shared by updateProp + className-absent case) ──
@@ -155,30 +195,34 @@ function insertOrReplaceAttr(
   source: string,
   node: t.JSXOpeningElement,
   prop: string,
-  valueCode: string
+  valueCode: string,
 ): string {
   const existing = node.attributes.find(
-    (a): a is t.JSXAttribute => t.isJSXAttribute(a) && t.isJSXIdentifier(a.name) && a.name.name === prop
-  )
-  const attrCode = `${prop}=${valueCode}`
+    (a): a is t.JSXAttribute =>
+      t.isJSXAttribute(a) && t.isJSXIdentifier(a.name) && a.name.name === prop,
+  );
+  const attrCode = `${prop}=${valueCode}`;
 
   if (existing && existing.start != null && existing.end != null) {
-    return source.slice(0, existing.start) + attrCode + source.slice(existing.end)
+    return (
+      source.slice(0, existing.start) + attrCode + source.slice(existing.end)
+    );
   }
 
   // Attribute doesn't exist -- insert immediately before the tag's closing
   // `>` or `/>`.
-  const tagEnd = node.end!
-  const insertAt = node.selfClosing ? tagEnd - 2 : tagEnd - 1
-  return source.slice(0, insertAt) + ` ${attrCode}` + source.slice(insertAt)
+  const tagEnd = node.end!;
+  const insertAt = node.selfClosing ? tagEnd - 2 : tagEnd - 1;
+  return source.slice(0, insertAt) + ` ${attrCode}` + source.slice(insertAt);
 }
 
 /** Format a non-string JS value as source code for a JSX expression container. */
 function formatLiteral(value: unknown): string {
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (value === null) return 'null'
-  if (value === undefined) return 'undefined'
-  return JSON.stringify(value)
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  return JSON.stringify(value);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -191,11 +235,14 @@ function formatLiteral(value: unknown): string {
  * since prop updates can legitimately race with other edits removing the node).
  */
 export function updateProp(source: string, op: UpdatePropOperation): string {
-  const result = findOpeningElement(source, op.auraId)
-  if (!result) return source
+  const result = findOpeningElement(source, op.auraId);
+  if (!result) return source;
 
-  const valueCode = typeof op.value === 'string' ? JSON.stringify(op.value) : `{${formatLiteral(op.value)}}`
-  return insertOrReplaceAttr(source, result.path.node, op.prop, valueCode)
+  const valueCode =
+    typeof op.value === "string"
+      ? JSON.stringify(op.value)
+      : `{${formatLiteral(op.value)}}`;
+  return insertOrReplaceAttr(source, result.path.node, op.prop, valueCode);
 }
 
 /**
@@ -208,8 +255,8 @@ export function updateStyle(source: string, op: UpdateStyleOperation): string {
       .split(/\s+/)
       .filter(Boolean)
       .map((cls) => (cls === op.oldClass ? op.newClass : cls))
-      .join(' ')
-  )
+      .join(" "),
+  );
 }
 
 /**
@@ -220,59 +267,63 @@ export function updateStyle(source: string, op: UpdateStyleOperation): string {
  * between the tags, including nested elements -- that's the exact class of
  * silent corruption this rewrite exists to prevent).
  */
-export function updateChildren(source: string, op: UpdateChildrenOperation): string {
-  const result = findOpeningElement(source, op.auraId)
-  if (!result) return source
+export function updateChildren(
+  source: string,
+  op: UpdateChildrenOperation,
+): string {
+  const result = findOpeningElement(source, op.auraId);
+  if (!result) return source;
 
-  const openingPath = result.path
-  const parent = openingPath.parentPath
-  if (!parent || !t.isJSXElement(parent.node)) return source
+  const openingPath = result.path;
+  const parent = openingPath.parentPath;
+  if (!parent || !t.isJSXElement(parent.node)) return source;
 
-  const element = parent.node
+  const element = parent.node;
   const meaningfulChildren = element.children.filter(
-    (c) => !(t.isJSXText(c) && c.value.trim() === '')
-  )
+    (c) => !(t.isJSXText(c) && c.value.trim() === ""),
+  );
 
   if (meaningfulChildren.length === 0) {
     // No children yet -- insert text right after the opening tag.
-    const insertAt = openingPath.node.end!
-    return source.slice(0, insertAt) + op.value + source.slice(insertAt)
+    const insertAt = openingPath.node.end!;
+    return source.slice(0, insertAt) + op.value + source.slice(insertAt);
   }
 
   if (meaningfulChildren.length === 1 && t.isJSXText(meaningfulChildren[0])) {
-    const textNode = meaningfulChildren[0] as t.JSXText
+    const textNode = meaningfulChildren[0] as t.JSXText;
     if (textNode.start == null || textNode.end == null) {
-      throw new AstMutationError(`Could not locate text child bounds for "${op.auraId}"`, op.auraId)
+      throw new AstMutationError(
+        `Could not locate text child bounds for "${op.auraId}"`,
+        op.auraId,
+      );
     }
-    return source.slice(0, textNode.start) + op.value + source.slice(textNode.end)
+    return (
+      source.slice(0, textNode.start) + op.value + source.slice(textNode.end)
+    );
   }
 
   throw new AstMutationError(
     `Element "${op.auraId}" has non-text children (nested elements/expressions) -- ` +
       `refusing to overwrite them via a text update. Edit this element's children in the code editor instead.`,
-    op.auraId
-  )
+    op.auraId,
+  );
 }
 
-/** Append `op.className` to the `className` prop of the target node (creates it if absent). */
 export function addClass(source: string, op: AddClassOperation): string {
   return mutateClassName(source, op.auraId, (classes) => {
-    const list = classes.split(/\s+/).filter(Boolean)
-    if (list.includes(op.className)) return list.join(' ')
+    const list = stripInternalClasses(classes.split(/\s+/).filter(Boolean))
+    if (list.includes(op.className) || INTERNAL_ONLY_CLASSES.has(op.className)) return list.join(' ')
     return [...list, op.className].join(' ')
   })
 }
 
-/** Remove `op.className` from the `className` prop of the target node. */
 export function removeClass(source: string, op: RemoveClassOperation): string {
   return mutateClassName(source, op.auraId, (classes) =>
-    classes
-      .split(/\s+/)
-      .filter((cls) => cls && cls !== op.className)
+    stripInternalClasses(classes.split(/\s+/).filter(Boolean))
+      .filter((cls) => cls !== op.className)
       .join(' ')
   )
 }
-
 /**
  * Insert a new JSX element as a SIBLING of the element identified by
  * `targetAuraId` -- immediately before or after it, at the same nesting level.
@@ -282,32 +333,43 @@ export function insertSibling(
   source: string,
   targetAuraId: string,
   elementCode: string,
-  placement: 'before' | 'after'
+  placement: "before" | "after",
 ): string {
-  const result = findOpeningElement(source, targetAuraId)
-  if (!result) return source
+  const result = findOpeningElement(source, targetAuraId);
+  if (!result) return source;
 
-  const openingNode = result.path.node
+  const openingNode = result.path.node;
   const targetElementNode: t.Node =
-    result.path.parentPath && (t.isJSXElement(result.path.parentPath.node) || t.isJSXFragment(result.path.parentPath.node))
+    result.path.parentPath &&
+    (t.isJSXElement(result.path.parentPath.node) ||
+      t.isJSXFragment(result.path.parentPath.node))
       ? result.path.parentPath.node
-      : openingNode
+      : openingNode;
 
-  if (targetElementNode.start == null || targetElementNode.end == null) return source
+  if (targetElementNode.start == null || targetElementNode.end == null)
+    return source;
 
   const indentMatch = /[ \t]*$/.exec(
-    source.slice(0, targetElementNode.start).split('\n').slice(-1)[0] ?? ''
-  )
-  const indent = indentMatch?.[0] ?? ''
+    source.slice(0, targetElementNode.start).split("\n").slice(-1)[0] ?? "",
+  );
+  const indent = indentMatch?.[0] ?? "";
 
-  if (placement === 'before') {
-    const insertAt = targetElementNode.start
-    return source.slice(0, insertAt) + `${elementCode}\n${indent}` + source.slice(insertAt)
+  if (placement === "before") {
+    const insertAt = targetElementNode.start;
+    return (
+      source.slice(0, insertAt) +
+      `${elementCode}\n${indent}` +
+      source.slice(insertAt)
+    );
   }
 
   // placement === 'after'
-  const insertAt = targetElementNode.end
-  return source.slice(0, insertAt) + `\n${indent}${elementCode}` + source.slice(insertAt)
+  const insertAt = targetElementNode.end;
+  return (
+    source.slice(0, insertAt) +
+    `\n${indent}${elementCode}` +
+    source.slice(insertAt)
+  );
 }
 
 /**
@@ -317,58 +379,63 @@ export function insertSibling(
  * replacement), not an add/remove delta.
  */
 export function setClasses(source: string, auraId: string, classes: readonly string[]): string {
-  return mutateClassName(source, auraId, () => classes.join(' '))
+  return mutateClassName(source, auraId, () => stripInternalClasses(classes).join(' '))
 }
-
 /**
  * Insert an element as the last child of the file's outermost returned JSX
  * root -- used when no explicit target/parent id is given (e.g. dropping a
  * component with no selection active). Finds the first JSXElement in the
  * file that isn't nested inside another JSXElement.
  */
-export function insertIntoFileRoot(source: string, elementCode: string): string {
-  const ast = parseSource(source)
-  if (!ast) return source
+export function insertIntoFileRoot(
+  source: string,
+  elementCode: string,
+): string {
+  const ast = parseSource(source);
+  if (!ast) return source;
 
-  let rootPath: NodePath<t.JSXElement> | null = null
+  let rootPath: NodePath<t.JSXElement> | null = null;
   traverse(ast, {
     JSXElement(path) {
-      if (rootPath) return
-      const isNested = !!path.findParent((p) => t.isJSXElement(p.node))
+      if (rootPath) return;
+      const isNested = !!path.findParent((p) => t.isJSXElement(p.node));
       if (!isNested) {
-        rootPath = path
-        path.stop()
+        rootPath = path;
+        path.stop();
       }
     },
-  })
+  });
 
-  if (!rootPath) return source
-  const element = (rootPath as NodePath<t.JSXElement>).node
+  if (!rootPath) return source;
+  const element = (rootPath as NodePath<t.JSXElement>).node;
 
   const indentMatch = /[ \t]*$/.exec(
-    source.slice(0, element.start ?? 0).split('\n').slice(-1)[0] ?? ''
-  )
-  const indent = (indentMatch?.[0] ?? '') + '  '
-  const snippet = `\n${indent}${elementCode}`
+    source
+      .slice(0, element.start ?? 0)
+      .split("\n")
+      .slice(-1)[0] ?? "",
+  );
+  const indent = (indentMatch?.[0] ?? "") + "  ";
+  const snippet = `\n${indent}${elementCode}`;
 
   if (element.children.length === 0) {
-    const insertAt = element.openingElement.end!
-    return source.slice(0, insertAt) + snippet + source.slice(insertAt)
+    const insertAt = element.openingElement.end!;
+    return source.slice(0, insertAt) + snippet + source.slice(insertAt);
   }
 
-  const lastChild = element.children[element.children.length - 1]!
-  const insertAt = lastChild.end ?? element.openingElement.end!
-  return source.slice(0, insertAt) + snippet + source.slice(insertAt)
+  const lastChild = element.children[element.children.length - 1]!;
+  const insertAt = lastChild.end ?? element.openingElement.end!;
+  return source.slice(0, insertAt) + snippet + source.slice(insertAt);
 }
 
 // ─── New operations (replace apps/web/src/lib/jsxUtils.ts entirely) ───────────
 
 export interface InsertElementOptions {
-  readonly parentAuraId: string
+  readonly parentAuraId: string;
   /** Raw JSX source of the element to insert, e.g. `<Card title="X" />` */
-  readonly elementCode: string
+  readonly elementCode: string;
   /** 'start' | 'end' -- where within the parent's children to insert. Default: 'end' */
-  readonly position?: 'start' | 'end'
+  readonly position?: "start" | "end";
 }
 
 /**
@@ -379,44 +446,55 @@ export interface InsertElementOptions {
  * shared a tag name (e.g. two <div>s), since its regex match was not aware
  * of JSX nesting depth at all.
  */
-export function insertElement(source: string, options: InsertElementOptions): string {
-  const result = findOpeningElement(source, options.parentAuraId)
-  if (!result) return source
+export function insertElement(
+  source: string,
+  options: InsertElementOptions,
+): string {
+  const result = findOpeningElement(source, options.parentAuraId);
+  if (!result) return source;
 
-  const openingNode = result.path.node
+  const openingNode = result.path.node;
   if (openingNode.selfClosing) {
     throw new AstMutationError(
       `Cannot insert a child into "${options.parentAuraId}" -- it's a self-closing element with no children slot.`,
-      options.parentAuraId
-    )
+      options.parentAuraId,
+    );
   }
 
-  const parent = result.path.parentPath
-  if (!parent || !t.isJSXElement(parent.node)) return source
-  const element = parent.node
+  const parent = result.path.parentPath;
+  if (!parent || !t.isJSXElement(parent.node)) return source;
+  const element = parent.node;
 
-  const position = options.position ?? 'end'
+  const position = options.position ?? "end";
   const indentMatch = /^[ \t]*/.exec(
-    source.slice(source.lastIndexOf('\n', openingNode.start ?? 0) + 1, openingNode.start ?? 0)
-  )
-  const indent = (indentMatch?.[0] ?? '') + '  '
-  const snippet = `\n${indent}${options.elementCode}`
+    source.slice(
+      source.lastIndexOf("\n", openingNode.start ?? 0) + 1,
+      openingNode.start ?? 0,
+    ),
+  );
+  const indent = (indentMatch?.[0] ?? "") + "  ";
+  const snippet = `\n${indent}${options.elementCode}`;
 
   if (element.children.length === 0) {
-    const insertAt = openingNode.end!
-    return source.slice(0, insertAt) + snippet + source.slice(insertAt)
+    const insertAt = openingNode.end!;
+    return source.slice(0, insertAt) + snippet + source.slice(insertAt);
   }
 
-  if (position === 'start') {
-    const firstChild = element.children[0]!
-    const insertAt = firstChild.start ?? openingNode.end!
-    return source.slice(0, insertAt) + snippet.slice(1) + `\n${indent}` + source.slice(insertAt)
+  if (position === "start") {
+    const firstChild = element.children[0]!;
+    const insertAt = firstChild.start ?? openingNode.end!;
+    return (
+      source.slice(0, insertAt) +
+      snippet.slice(1) +
+      `\n${indent}` +
+      source.slice(insertAt)
+    );
   }
 
   // position === 'end': insert right before the closing tag
-  const lastChild = element.children[element.children.length - 1]!
-  const insertAt = lastChild.end ?? openingNode.end!
-  return source.slice(0, insertAt) + snippet + source.slice(insertAt)
+  const lastChild = element.children[element.children.length - 1]!;
+  const insertAt = lastChild.end ?? openingNode.end!;
+  return source.slice(0, insertAt) + snippet + source.slice(insertAt);
 }
 
 /**
@@ -426,27 +504,29 @@ export function insertElement(source: string, options: InsertElementOptions): st
  * the exact bug class the old regex-based deleteJSXElement was exposed to.
  */
 export function deleteElement(source: string, auraId: string): string {
-  const result = findOpeningElement(source, auraId)
-  if (!result) return source
+  const result = findOpeningElement(source, auraId);
+  if (!result) return source;
 
-  const openingNode = result.path.node
+  const openingNode = result.path.node;
   const targetNode: t.Node =
-    result.path.parentPath && (t.isJSXElement(result.path.parentPath.node) || t.isJSXFragment(result.path.parentPath.node))
+    result.path.parentPath &&
+    (t.isJSXElement(result.path.parentPath.node) ||
+      t.isJSXFragment(result.path.parentPath.node))
       ? result.path.parentPath.node
-      : openingNode
+      : openingNode;
 
-  if (targetNode.start == null || targetNode.end == null) return source
+  if (targetNode.start == null || targetNode.end == null) return source;
 
   // Also strip a single leading newline+whitespace before the element, if
   // present, so deleting a child doesn't leave a blank line behind.
-  let start = targetNode.start
-  const before = source.slice(Math.max(0, start - 200), start)
-  const trailingWsMatch = /\n[ \t]*$/.exec(before)
+  let start = targetNode.start;
+  const before = source.slice(Math.max(0, start - 200), start);
+  const trailingWsMatch = /\n[ \t]*$/.exec(before);
   if (trailingWsMatch) {
-    start -= trailingWsMatch[0].length
+    start -= trailingWsMatch[0].length;
   }
 
-  return source.slice(0, start) + source.slice(targetNode.end)
+  return source.slice(0, start) + source.slice(targetNode.end);
 }
 
 /**
@@ -457,24 +537,28 @@ export function moveElement(
   source: string,
   draggedAuraId: string,
   targetParentAuraId: string,
-  position: 'start' | 'end' = 'end'
+  position: "start" | "end" = "end",
 ): string {
-  const dragged = findOpeningElement(source, draggedAuraId)
-  if (!dragged) return source
+  const dragged = findOpeningElement(source, draggedAuraId);
+  if (!dragged) return source;
 
-  const draggedOpening = dragged.path.node
+  const draggedOpening = dragged.path.node;
   const draggedElementNode: t.Node =
     dragged.path.parentPath && t.isJSXElement(dragged.path.parentPath.node)
       ? dragged.path.parentPath.node
-      : draggedOpening
+      : draggedOpening;
 
-  if (draggedElementNode.start == null || draggedElementNode.end == null) return source
-  const elementCode = source.slice(draggedElementNode.start, draggedElementNode.end)
+  if (draggedElementNode.start == null || draggedElementNode.end == null)
+    return source;
+  const elementCode = source.slice(
+    draggedElementNode.start,
+    draggedElementNode.end,
+  );
 
-  const withoutDragged = deleteElement(source, draggedAuraId)
+  const withoutDragged = deleteElement(source, draggedAuraId);
   return insertElement(withoutDragged, {
     parentAuraId: targetParentAuraId,
     elementCode,
     position,
-  })
+  });
 }

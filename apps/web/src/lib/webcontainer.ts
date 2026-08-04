@@ -27,7 +27,8 @@ const REQUIRED_DEV_DEPS: Record<string, string> = {
   typescript: "5.3.3",
 };
 
-const WEBCONTAINER_DEV_SCRIPT = "NEXT_PRIVATE_WORKERS=0 next dev --hostname 0.0.0.0 --port 3000";
+const WEBCONTAINER_DEV_SCRIPT =
+  "NEXT_PRIVATE_WORKERS=0 next dev --hostname 0.0.0.0 --port 3000";
 
 /** Merges required deps into the package.json content string.
  * Spread order: user packages first, then REQUIRED_DEPS — so our pinned
@@ -44,7 +45,10 @@ function mergePackageJson(content: string): string {
     };
     pkg.scripts = pkg.scripts ?? {};
     // Disable worker thread spawning and bind to 0.0.0.0
-    if (!pkg.scripts.dev?.includes("NEXT_PRIVATE_WORKERS") || !pkg.scripts.dev?.includes("0.0.0.0")) {
+    if (
+      !pkg.scripts.dev?.includes("NEXT_PRIVATE_WORKERS") ||
+      !pkg.scripts.dev?.includes("0.0.0.0")
+    ) {
       pkg.scripts.dev = WEBCONTAINER_DEV_SCRIPT;
     }
     return JSON.stringify(pkg, null, 2);
@@ -72,14 +76,14 @@ export async function getWebContainer(): Promise<WebContainer> {
 const INSPECTOR_SCRIPT = `
 (function() {
   if (typeof window === 'undefined') return;
-
+ 
   if (window.__auraInspectorLoaded) {
     try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
     return;
   }
   window.__auraInspectorLoaded = true;
   window.__designMode = true;
-
+ 
   var captureLog = function(level) {
     var original = console[level];
     return function() {
@@ -96,14 +100,14 @@ const INSPECTOR_SCRIPT = `
   console.log   = captureLog('log');
   console.error = captureLog('error');
   console.warn  = captureLog('warn');
-
+ 
   var originalOnError = window.onerror;
   window.onerror = function(message, source, lineno, colno, error) {
     if (typeof originalOnError === 'function') { try { originalOnError.apply(window, arguments); } catch(err) {} }
     try { window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*'); } catch(e) {}
     return true;
   };
-
+ 
   var styleEl = document.createElement('style');
   styleEl.id = 'aura-inspector-styles';
   styleEl.innerHTML = [
@@ -112,33 +116,47 @@ const INSPECTOR_SCRIPT = `
     '.designer-hover-label { position:fixed; background:#a855f7; color:#fff; font:bold 10px/1 system-ui,sans-serif; padding:2px 5px; border-radius:3px; pointer-events:none; z-index:2147483647; white-space:nowrap; }',
     '.designer-breadcrumb { position:fixed; bottom:8px; left:8px; background:rgba(10,10,10,0.85); color:#a78bfa; font:10px/1.4 monospace; padding:4px 8px; border-radius:4px; pointer-events:none; z-index:2147483647; backdrop-filter:blur(6px); max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }',
   ].join('\\n');
-
+ 
   var injectStyle = function() {
     if (document.head && !document.getElementById('aura-inspector-styles')) document.head.appendChild(styleEl);
   };
   if (document.head) { injectStyle(); }
   else { window.addEventListener('DOMContentLoaded', injectStyle); }
-
+ 
   try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
-
+ 
   var SKIP_TAGS = new Set(['HTML','HEAD','BODY','SCRIPT','STYLE','NOSCRIPT','SVG','PATH','DEFS','SYMBOL','G','USE']);
   var idCounter = 5000;
-
-  function getCleanId(target) {
-    var id = target.getAttribute('data-aura-id') || target.getAttribute('data-id');
-    if (!id) {
-      id = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2,7);
-      target.setAttribute('data-aura-id', id);
-      target.setAttribute('data-id', id);
+ 
+  // Runtime id: ALWAYS unique per actual DOM node, minted once via a
+  // dedicated attribute separate from the static source data-id. Used for
+  // selection/hover/highlight/position tracking only -- never for file
+  // writes, since it has no meaning after the next hot-reload recreates
+  // the DOM from scratch.
+  function getRuntimeId(target) {
+    var rtId = target.getAttribute('data-aura-rt');
+    if (!rtId) {
+      rtId = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2,7);
+      target.setAttribute('data-aura-rt', rtId);
     }
-    return id;
+    return rtId;
   }
-
-  function findById(id) {
-    return document.querySelector('[data-aura-id="' + id + '"]') ||
-           document.querySelector('[data-id="' + id + '"]');
+ 
+  // Source id: the static data-id/data-aura-id baked into JSX at build time
+  // (by tagWithCounter). Shared across EVERY rendered instance of the same
+  // JSX -- e.g. every card in a .map() has the same source id. Correct for
+  // file mutations (editing "the template" should affect all instances),
+  // but never for click targeting.
+  function getSourceId(target) {
+    return target.getAttribute('data-aura-id') || target.getAttribute('data-id') || null;
   }
-
+ 
+  // Resolves ONLY by the unique runtime id -- never ambiguous, always
+  // resolves to the exact DOM node that was actually interacted with.
+  function findByRuntimeId(id) {
+    return document.querySelector('[data-aura-rt="' + id + '"]');
+  }
+ 
   function getComputedStyleSnapshot(el) {
     var cs = window.getComputedStyle(el);
     return {
@@ -162,7 +180,7 @@ const INSPECTOR_SCRIPT = `
       overflowY: cs.overflowY, cursor: cs.cursor,
     };
   }
-
+ 
   function getAncestors(el) {
     var parts = [];
     var node = el;
@@ -176,10 +194,10 @@ const INSPECTOR_SCRIPT = `
     }
     return parts.join(' › ');
   }
-
+ 
   var hoverLabel = null;
   var breadcrumb = null;
-
+ 
   function ensureHoverLabel() {
     if (!hoverLabel) {
       hoverLabel = document.createElement('div');
@@ -192,7 +210,7 @@ const INSPECTOR_SCRIPT = `
       document.body.appendChild(breadcrumb);
     }
   }
-
+ 
   function showHoverLabel(el) {
     ensureHoverLabel();
     var rect = el.getBoundingClientRect();
@@ -207,12 +225,12 @@ const INSPECTOR_SCRIPT = `
     breadcrumb.textContent = getAncestors(el);
     breadcrumb.style.display = 'block';
   }
-
+ 
   function hideHoverLabel() {
     if (hoverLabel) hoverLabel.style.display = 'none';
     if (breadcrumb) breadcrumb.style.display = 'none';
   }
-
+ 
   function buildDomTree(el, depth) {
     if (!el || !el.tagName) return null;
     var tag = el.tagName.toLowerCase();
@@ -230,11 +248,11 @@ const INSPECTOR_SCRIPT = `
     }
     return { id: id, tag: tag, classes: cls, children: children, depth: depth };
   }
-
+ 
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
     var d = e.data;
-
+ 
     if (d.type === 'SET_DESIGN_MODE') {
       window.__designMode = !!d.enabled;
       if (!window.__designMode) {
@@ -242,61 +260,61 @@ const INSPECTOR_SCRIPT = `
         hideHoverLabel();
       }
     }
-
+ 
     if (d.type === 'INJECT_INSPECTOR') {
       if (typeof d.script === 'string') { try { (0, eval)(d.script); } catch(err) {} }
       try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
     }
-
+ 
     if (d.type === 'SELECT_ELEMENT') {
       document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) el.classList.add('designer-selected');
       }
     }
-
+ 
     if (d.type === 'HOVER_ELEMENT') {
       document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) { el.classList.add('designer-hover'); showHoverLabel(el); }
       } else { hideHoverLabel(); }
     }
-
+ 
     if (d.type === 'APPLY_STYLE') {
       if (d.id && d.property) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) {
           var prop = d.property.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
           el.style[prop] = d.value || '';
         }
       }
     }
-
+ 
     if (d.type === 'APPLY_CLASS') {
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) {
           (d.remove || []).forEach(function(c) { el.classList.remove(c); });
           (d.add || []).forEach(function(c) { el.classList.add(c); });
         }
       }
     }
-
+ 
     if (d.type === 'SET_TEXT') {
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el && d.text !== undefined) el.innerText = d.text;
       }
     }
-
+ 
     if (d.type === 'GET_DOM_TREE') {
       var tree = buildDomTree(document.body, 0);
       try { window.parent.postMessage({ type: 'DOM_TREE_SNAPSHOT', tree: tree }, '*'); } catch(e) {}
     }
   });
-
+ 
   window.addEventListener('mouseover', function(e) {
     if (!window.__designMode) return;
     var target = e.target;
@@ -307,38 +325,40 @@ const INSPECTOR_SCRIPT = `
     target.classList.add('designer-hover');
     showHoverLabel(target);
   }, true);
-
+ 
   window.addEventListener('mouseout', function(e) {
     if (!window.__designMode) return;
     if (e.target && e.target.classList) e.target.classList.remove('designer-hover');
     hideHoverLabel();
   }, true);
-
+ 
   window.addEventListener('click', function(e) {
     if (!window.__designMode) return;
     var target = e.target;
     if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
-
+ 
     e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-
+ 
     document.querySelectorAll('.designer-selected, .designer-hover').forEach(function(x) {
       x.classList.remove('designer-selected', 'designer-hover');
     });
     target.classList.add('designer-selected');
     hideHoverLabel();
-
-    var id = getCleanId(target);
+ 
+    var runtimeId = getRuntimeId(target);
+    var sourceId = getSourceId(target);
     var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
       return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
     var rect = target.getBoundingClientRect();
-
+ 
     try {
       window.parent.postMessage({
         type: 'ELEMENT_SELECTED',
-        id: id,
+        id: runtimeId,        // unique per DOM node -- selection/highlight/position tracking
+        sourceId: sourceId,   // shared across .map() instances -- the actual file-mutation target
         tagName: target.tagName,
         text: (target.children && target.children.length === 0) ? (target.innerText || target.textContent || '').trim().slice(0, 200) : undefined,
         classes: classList,
@@ -347,11 +367,11 @@ const INSPECTOR_SCRIPT = `
       }, '*');
     } catch(err) {}
   }, true);
-
+ 
 })();
 `;
 
-const INSPECTOR_SCRIPT_MARKER = 'aura-inspector-script';
+const INSPECTOR_SCRIPT_MARKER = "aura-inspector-script";
 
 /**
  * Only the ROOT layout qualifies for beforeInteractive injection.
@@ -395,13 +415,13 @@ function injectInspector(path: string, content: string): string {
   const htmlCloseRegex = /<\/html>/i;
   if (htmlCloseRegex.test(modified)) {
     console.warn(
-      `[injectInspector] No </body> found in ${path}; falling back to </html> insertion point.`
+      `[injectInspector] No </body> found in ${path}; falling back to </html> insertion point.`,
     );
     return modified.replace(htmlCloseRegex, `${scriptTag}\n</html>`);
   }
 
   console.warn(
-    `[injectInspector] Could not find an insertion point in ${path} — inspector will NOT be available for this preview.`
+    `[injectInspector] Could not find an insertion point in ${path} — inspector will NOT be available for this preview.`,
   );
   return content;
 }

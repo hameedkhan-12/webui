@@ -155,12 +155,22 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       const data = e.data;
       if (!data || typeof data !== "object") return;
 
-      if (data.type === 'AURA_REGISTER_GENERATED_COMPONENT') {
+      if (data.type === "AURA_REGISTER_GENERATED_COMPONENT") {
         try {
           const iframe = iframeRef.current;
           if (iframe?.contentWindow) {
-            iframe.contentWindow.postMessage({ type: 'REGISTER_GENERATED_COMPONENT', meta: data.meta, path: data.path }, '*');
-            onAddConsoleLine(`Registered generated component ${data.meta?.name ?? data.path}`, 'info');
+            iframe.contentWindow.postMessage(
+              {
+                type: "REGISTER_GENERATED_COMPONENT",
+                meta: data.meta,
+                path: data.path,
+              },
+              "*",
+            );
+            onAddConsoleLine(
+              `Registered generated component ${data.meta?.name ?? data.path}`,
+              "info",
+            );
           }
         } catch (err) {
           // ignore
@@ -169,7 +179,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       }
 
       if (data.type === "INSPECTOR_READY") {
-        console.log('[LivePreview] Received INSPECTOR_READY from iframe');
+        console.log("[LivePreview] Received INSPECTOR_READY from iframe");
         inspectorReadyRef.current = true;
         setInspectorReady(true);
         return;
@@ -178,6 +188,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       if (data.type === "ELEMENT_SELECTED") {
         onSelectElement({
           id: data.id,
+          sourceId: data.sourceId ?? null, // ADDED
           tagName: data.tagName,
           text: data.text,
           classes: data.classes,
@@ -215,17 +226,17 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         const detail = (e as CustomEvent).detail;
         const iframe = iframeRef.current;
         if (iframe?.contentWindow && detail) {
-          iframe.contentWindow.postMessage(detail, '*');
+          iframe.contentWindow.postMessage(detail, "*");
         }
       } catch {
         // ignore cross-origin
       }
     };
-    window.addEventListener('aura:post-to-preview', handleBridgeEvent);
+    window.addEventListener("aura:post-to-preview", handleBridgeEvent);
 
     return () => {
       window.removeEventListener("message", handleMessage);
-      window.removeEventListener('aura:post-to-preview', handleBridgeEvent);
+      window.removeEventListener("aura:post-to-preview", handleBridgeEvent);
     };
   }, [
     onSelectElement,
@@ -236,17 +247,19 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   ]);
 
   // Inject inspector script directly into the live iframe when design mode activates.
-  const RUNTIME_INSPECTOR = React.useMemo(() => `
+  const RUNTIME_INSPECTOR = React.useMemo(
+    () => `
+ 
 (function() {
   if (typeof window === 'undefined') return;
-
+ 
   if (window.__auraInspectorLoaded) {
     try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
     return;
   }
   window.__auraInspectorLoaded = true;
   window.__designMode = true;
-
+ 
   // ── Console capture ──────────────────────────────────────────────────────
   var captureLog = function(level) {
     var original = console[level];
@@ -264,7 +277,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   console.log   = captureLog('log');
   console.error = captureLog('error');
   console.warn  = captureLog('warn');
-
+ 
   // ── Error capture ────────────────────────────────────────────────────────
   var originalOnError = window.onerror;
   window.onerror = function(message, source, lineno, colno, error) {
@@ -272,7 +285,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     try { window.parent.postMessage({ type: 'RUNTIME_ERROR', message: message + ' (' + lineno + ':' + colno + ')' }, '*'); } catch(e) {}
     return true;
   };
-
+ 
   // ── Styles ───────────────────────────────────────────────────────────────
   var styleEl = document.createElement('style');
   styleEl.id = 'aura-inspector-styles';
@@ -281,35 +294,49 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     '.designer-selected { outline: 2px solid #a855f7 !important; outline-offset: -2px !important; box-shadow: 0 0 0 4px rgba(168,85,247,0.15) !important; }',
     '.designer-hover-label { position:fixed; background:#a855f7; color:#fff; font:bold 10px/1 system-ui,sans-serif; padding:2px 5px; border-radius:3px; pointer-events:none; z-index:2147483647; white-space:nowrap; }',
     '.designer-breadcrumb { position:fixed; bottom:8px; left:8px; background:rgba(10,10,10,0.85); color:#a78bfa; font:10px/1.4 monospace; padding:4px 8px; border-radius:4px; pointer-events:none; z-index:2147483647; backdrop-filter:blur(6px); max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }',
-  ].join('\\n');
-
+  ].join('\n');
+ 
   var injectStyle = function() {
     if (document.head && !document.getElementById('aura-inspector-styles')) document.head.appendChild(styleEl);
   };
   if (document.head) { injectStyle(); }
   else { window.addEventListener('DOMContentLoaded', injectStyle); }
-
+ 
   try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(e) {}
-
+ 
   // ── Helpers ──────────────────────────────────────────────────────────────
   var SKIP_TAGS = new Set(['HTML','HEAD','BODY','SCRIPT','STYLE','NOSCRIPT','SVG','PATH','DEFS','SYMBOL','G','USE']);
   var idCounter = 5000;
-
-  function getCleanId(target) {
-    var id = target.getAttribute('data-aura-id') || target.getAttribute('data-id');
-    if (!id) {
-      id = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2,7);
-      target.setAttribute('data-aura-id', id);
-      target.setAttribute('data-id', id);
+ 
+  // Runtime id: ALWAYS unique per actual DOM node, minted once via a
+  // dedicated attribute separate from the static source data-id. Used for
+  // selection/hover/highlight/position tracking only -- never for file
+  // writes, since it has no meaning after the next hot-reload recreates
+  // the DOM from scratch.
+  function getRuntimeId(target) {
+    var rtId = target.getAttribute('data-aura-rt');
+    if (!rtId) {
+      rtId = 'rt-' + (idCounter++) + '-' + Math.random().toString(36).substring(2,7);
+      target.setAttribute('data-aura-rt', rtId);
     }
-    return id;
+    return rtId;
   }
-
-  function findById(id) {
-    return document.querySelector('[data-aura-id="' + id + '"]') ||
-           document.querySelector('[data-id="' + id + '"]');
+ 
+  // Source id: the static data-id/data-aura-id baked into JSX at build time
+  // (by tagWithCounter). Shared across EVERY rendered instance of the same
+  // JSX -- e.g. every card in a .map() has the same source id. Correct for
+  // file mutations (editing "the template" should affect all instances),
+  // but never for click targeting.
+  function getSourceId(target) {
+    return target.getAttribute('data-aura-id') || target.getAttribute('data-id') || null;
   }
-
+ 
+  // Resolves ONLY by the unique runtime id -- never ambiguous, always
+  // resolves to the exact DOM node that was actually interacted with.
+  function findByRuntimeId(id) {
+    return document.querySelector('[data-aura-rt="' + id + '"]');
+  }
+ 
   function getComputedStyleSnapshot(el) {
     var cs = window.getComputedStyle(el);
     return {
@@ -333,7 +360,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       overflowY: cs.overflowY, cursor: cs.cursor,
     };
   }
-
+ 
   function getAncestors(el) {
     var parts = [];
     var node = el;
@@ -347,11 +374,11 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     }
     return parts.join(' › ');
   }
-
+ 
   // ── Hover label & breadcrumb ─────────────────────────────────────────────
   var hoverLabel = null;
   var breadcrumb = null;
-
+ 
   function ensureHoverLabel() {
     if (!hoverLabel) {
       hoverLabel = document.createElement('div');
@@ -364,7 +391,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       document.body.appendChild(breadcrumb);
     }
   }
-
+ 
   function showHoverLabel(el) {
     ensureHoverLabel();
     var rect = el.getBoundingClientRect();
@@ -372,7 +399,6 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     var h = Math.round(rect.height);
     hoverLabel.textContent = w + ' × ' + h;
     hoverLabel.style.display = 'block';
-    // position above element or below if near top
     var top = rect.top - 20;
     if (top < 4) top = rect.bottom + 4;
     hoverLabel.style.top = top + 'px';
@@ -380,12 +406,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     breadcrumb.textContent = getAncestors(el);
     breadcrumb.style.display = 'block';
   }
-
+ 
   function hideHoverLabel() {
     if (hoverLabel) hoverLabel.style.display = 'none';
     if (breadcrumb) breadcrumb.style.display = 'none';
   }
-
+ 
   // ── DOM Tree builder ─────────────────────────────────────────────────────
   function buildDomTree(el, depth) {
     if (!el || !el.tagName) return null;
@@ -404,12 +430,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     }
     return { id: id, tag: tag, classes: cls, children: children, depth: depth };
   }
-
+ 
   // ── Inbound message handlers ─────────────────────────────────────────────
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
     var d = e.data;
-
+ 
     if (d.type === 'SET_DESIGN_MODE') {
       window.__designMode = !!d.enabled;
       if (!window.__designMode) {
@@ -417,62 +443,61 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         hideHoverLabel();
       }
     }
-
+ 
     if (d.type === 'INJECT_INSPECTOR') {
       if (typeof d.script === 'string') { try { (0, eval)(d.script); } catch(err) {} }
       try { window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*'); } catch(err) {}
     }
-
+ 
     if (d.type === 'SELECT_ELEMENT') {
       document.querySelectorAll('.designer-selected').forEach(function(x) { x.classList.remove('designer-selected'); });
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) el.classList.add('designer-selected');
       }
     }
-
+ 
     if (d.type === 'HOVER_ELEMENT') {
       document.querySelectorAll('.designer-hover').forEach(function(x) { x.classList.remove('designer-hover'); });
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) { el.classList.add('designer-hover'); showHoverLabel(el); }
       } else { hideHoverLabel(); }
     }
-
+ 
     if (d.type === 'APPLY_STYLE') {
       if (d.id && d.property) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) {
-          // camelCase or kebab-case — support both
           var prop = d.property.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
           el.style[prop] = d.value || '';
         }
       }
     }
-
+ 
     if (d.type === 'APPLY_CLASS') {
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el) {
           (d.remove || []).forEach(function(c) { el.classList.remove(c); });
           (d.add || []).forEach(function(c) { el.classList.add(c); });
         }
       }
     }
-
+ 
     if (d.type === 'SET_TEXT') {
       if (d.id) {
-        var el = findById(d.id);
+        var el = findByRuntimeId(d.id);
         if (el && d.text !== undefined) el.innerText = d.text;
       }
     }
-
+ 
     if (d.type === 'GET_DOM_TREE') {
       var tree = buildDomTree(document.body, 0);
       try { window.parent.postMessage({ type: 'DOM_TREE_SNAPSHOT', tree: tree }, '*'); } catch(e) {}
     }
   });
-
+ 
   // ── Pointer event listeners ──────────────────────────────────────────────
   window.addEventListener('mouseover', function(e) {
     if (!window.__designMode) return;
@@ -484,49 +509,53 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     target.classList.add('designer-hover');
     showHoverLabel(target);
   }, true);
-
+ 
   window.addEventListener('mouseout', function(e) {
     if (!window.__designMode) return;
     if (e.target && e.target.classList) e.target.classList.remove('designer-hover');
     hideHoverLabel();
   }, true);
-
+ 
   window.addEventListener('click', function(e) {
     if (!window.__designMode) return;
     var target = e.target;
     if (!target || !target.tagName || SKIP_TAGS.has(target.tagName)) return;
-
+ 
     e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-
+ 
     document.querySelectorAll('.designer-selected, .designer-hover').forEach(function(x) {
       x.classList.remove('designer-selected', 'designer-hover');
     });
     target.classList.add('designer-selected');
     hideHoverLabel();
-
-    var id = getCleanId(target);
+ 
+    var runtimeId = getRuntimeId(target);
+    var sourceId = getSourceId(target);
     var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
       return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
     var rect = target.getBoundingClientRect();
-
+ 
     try {
       window.parent.postMessage({
         type: 'ELEMENT_SELECTED',
-        id: id,
+        id: runtimeId,
+        sourceId: sourceId,
         tagName: target.tagName,
-        text: (target.innerText || target.textContent || '').trim().slice(0, 200),
+        text: (target.children && target.children.length === 0) ? (target.innerText || target.textContent || '').trim().slice(0, 200) : undefined,
         classes: classList,
         computedStyle: getComputedStyleSnapshot(target),
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       }, '*');
     } catch(err) {}
   }, true);
-
+ 
 })();
-  `, []);
+  `,
+    [],
+  );
 
   // suppress unused warning — inspectorReady is consumed by the polling logic via ref
   void inspectorReady;
@@ -553,22 +582,33 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
     let attempts = 0;
     pollingRef.current = setInterval(() => {
       const win = iframeRef.current?.contentWindow;
-      if (!win || attempts++ > 18) { stopPolling(); return; }
+      if (!win || attempts++ > 18) {
+        stopPolling();
+        return;
+      }
 
-      win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designModeRef.current }, '*');
+      win.postMessage(
+        { type: "SET_DESIGN_MODE", enabled: designModeRef.current },
+        "*",
+      );
 
       if (!inspectorReadyRef.current) {
         // Try direct DOM injection first (works if same-origin)
         try {
           const doc = iframeRef.current?.contentDocument;
-          if (doc && doc.head && !doc.getElementById('aura-inspector-script')) {
-            const script = doc.createElement('script');
-            script.id = 'aura-inspector-script';
+          if (doc && doc.head && !doc.getElementById("aura-inspector-script")) {
+            const script = doc.createElement("script");
+            script.id = "aura-inspector-script";
             script.textContent = RUNTIME_INSPECTOR;
             doc.head.appendChild(script);
           }
-        } catch (_) { /* cross-origin — use postMessage fallback */ }
-        win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
+        } catch (_) {
+          /* cross-origin — use postMessage fallback */
+        }
+        win.postMessage(
+          { type: "INJECT_INSPECTOR", script: RUNTIME_INSPECTOR },
+          "*",
+        );
       } else {
         stopPolling();
       }
@@ -582,9 +622,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   React.useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    win.postMessage({ type: 'SET_DESIGN_MODE', enabled: designMode }, '*');
+    win.postMessage({ type: "SET_DESIGN_MODE", enabled: designMode }, "*");
     if (designMode && !inspectorReadyRef.current) {
-      win.postMessage({ type: 'INJECT_INSPECTOR', script: RUNTIME_INSPECTOR }, '*');
+      win.postMessage(
+        { type: "INJECT_INSPECTOR", script: RUNTIME_INSPECTOR },
+        "*",
+      );
     }
   }, [designMode, RUNTIME_INSPECTOR]);
 
@@ -599,10 +642,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   React.useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (win) {
-      win.postMessage({ type: "SELECT_ELEMENT", id: selectedElement?.id || null }, "*");
+      win.postMessage(
+        { type: "SELECT_ELEMENT", id: selectedElement?.id || null },
+        "*",
+      );
     }
   }, [selectedElement]);
-
 
   const getIframeSrcDoc = () => {
     const stylesCode = getStylesSource(debouncedFiles);
@@ -1049,12 +1094,13 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             ))}
           </div>
           <span
-            className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${devServerActive
-              ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/5"
-              : isBootingPreview
-                ? "border-amber-500/30 text-amber-400 bg-amber-500/5"
-                : "border-white/10 text-slate-600"
-              }`}
+            className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${
+              devServerActive
+                ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/5"
+                : isBootingPreview
+                  ? "border-amber-500/30 text-amber-400 bg-amber-500/5"
+                  : "border-white/10 text-slate-600"
+            }`}
           >
             {devServerActive
               ? "Live"
