@@ -150,6 +150,27 @@ const INSPECTOR_SCRIPT = `
   function getSourceId(target) {
     return target.getAttribute('data-aura-id') || target.getAttribute('data-id') || null;
   }
+
+  // Runtime-only, computed at click time: this node's position (0-based)
+  // among every currently-rendered DOM node sharing the same sourceId, in
+  // document order. A plain .map() renders array items into the DOM in
+  // array order, so this position IS the array index for the common case
+  // (feature grids, pricing tiers, team lists, ...) -- not a guarantee for
+  // every possible list (a post-map filter/sort would break the mapping),
+  // which is exactly why the AST side (getStaticArrayInfo) double-checks
+  // this index is actually in range before trusting it for a write.
+  // Returns null when there's only one instance (not actually repeated at
+  // runtime) so callers can tell "not repeated" apart from "index 0".
+  function getRepeatIndex(target, sourceId) {
+    if (!sourceId) return null;
+    var selector = '[data-aura-id="' + sourceId + '"], [data-id="' + sourceId + '"]';
+    var matches = document.querySelectorAll(selector);
+    if (matches.length <= 1) return null;
+    for (var i = 0; i < matches.length; i++) {
+      if (matches[i] === target) return i;
+    }
+    return null;
+  }
  
   // Resolves ONLY by the unique runtime id -- never ambiguous, always
   // resolves to the exact DOM node that was actually interacted with.
@@ -349,6 +370,7 @@ const INSPECTOR_SCRIPT = `
  
     var runtimeId = getRuntimeId(target);
     var sourceId = getSourceId(target);
+    var repeatIndex = getRepeatIndex(target, sourceId);
     var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
       return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
@@ -359,6 +381,7 @@ const INSPECTOR_SCRIPT = `
         type: 'ELEMENT_SELECTED',
         id: runtimeId,        // unique per DOM node -- selection/highlight/position tracking
         sourceId: sourceId,   // shared across .map() instances -- the actual file-mutation target
+        repeatIndex: repeatIndex, // this node's position among siblings sharing sourceId, or null
         tagName: target.tagName,
         text: (target.children && target.children.length === 0) ? (target.innerText || target.textContent || '').trim().slice(0, 200) : undefined,
         classes: classList,

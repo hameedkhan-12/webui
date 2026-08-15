@@ -1,9 +1,5 @@
-/**
- * Hook for persisting workspace files to localStorage
- * Handles serialization and deserialization of file structure
- */
 
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 
 const WORKSPACE_STORAGE_PREFIX = 'workspace_files_';
 

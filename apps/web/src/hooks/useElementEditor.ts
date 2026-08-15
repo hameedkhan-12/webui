@@ -2,18 +2,6 @@
 
 import React from "react";
 import { SelectedElement } from "@repo/shared";
-
-/**
- * useElementEditor
- *
- * Onlook-style real-time editing pipeline:
- *   1. Style change comes from StylePanel
- *   2. Immediately postMessage APPLY_STYLE to iframe → instant visual feedback
- *   3. After 350ms debounce → call onUpdateElement() to write Tailwind class to source file
- *
- * The hook returns helpers that StylePanel uses instead of calling onUpdateElement directly.
- */
-
 export interface ElementEditorOptions {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedElement: SelectedElement | null;

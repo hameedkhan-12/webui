@@ -189,6 +189,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         onSelectElement({
           id: data.id,
           sourceId: data.sourceId ?? null, // ADDED
+          repeatIndex: data.repeatIndex ?? null, // ADDED — see webcontainer.ts's getRepeatIndex
           tagName: data.tagName,
           text: data.text,
           classes: data.classes,
@@ -329,6 +330,21 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   // but never for click targeting.
   function getSourceId(target) {
     return target.getAttribute('data-aura-id') || target.getAttribute('data-id') || null;
+  }
+
+  // See webcontainer.ts's identical getRepeatIndex for the full rationale --
+  // kept as a plain duplicate here rather than merged, matching this file's
+  // existing (pre-existing, not something introduced by this change)
+  // relationship to webcontainer.ts's copy of the inspector script.
+  function getRepeatIndex(target, sourceId) {
+    if (!sourceId) return null;
+    var selector = '[data-aura-id="' + sourceId + '"], [data-id="' + sourceId + '"]';
+    var matches = document.querySelectorAll(selector);
+    if (matches.length <= 1) return null;
+    for (var i = 0; i < matches.length; i++) {
+      if (matches[i] === target) return i;
+    }
+    return null;
   }
  
   // Resolves ONLY by the unique runtime id -- never ambiguous, always
@@ -533,6 +549,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
  
     var runtimeId = getRuntimeId(target);
     var sourceId = getSourceId(target);
+    var repeatIndex = getRepeatIndex(target, sourceId);
     var classList = Array.prototype.slice.call(target.classList).filter(function(c) {
       return c !== 'designer-hover' && c !== 'designer-selected' && c !== 'designer-dragover';
     });
@@ -543,6 +560,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         type: 'ELEMENT_SELECTED',
         id: runtimeId,
         sourceId: sourceId,
+        repeatIndex: repeatIndex,
         tagName: target.tagName,
         text: (target.children && target.children.length === 0) ? (target.innerText || target.textContent || '').trim().slice(0, 200) : undefined,
         classes: classList,

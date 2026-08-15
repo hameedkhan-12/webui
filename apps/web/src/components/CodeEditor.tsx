@@ -13,28 +13,42 @@ import { X, Circle } from "lucide-react";
 import { WorkspaceFiles, ComponentMeta } from "@repo/shared";
 import { parseComponentMetaFromSource } from "@aura/component-registry";
 
-// ─── Zed Dark Theme ───────────────────────────────────────────────────────────
-// Based on Zed's official "One Dark" theme palette
-// Ref: https://github.com/zed-industries/zed/blob/main/assets/themes/one_dark.json
-
-const zedDarkBase = EditorView.theme(
+// ─── Editor Chrome Theme ────────────────────────────────────────────────────
+// UI CHROME (backgrounds, borders, gutters, selection, cursor, tooltips,
+// scrollbars) is pulled from the app's own design tokens in globals.css --
+// same `var(--background)`/`var(--border)`/`var(--ring)` etc. every other
+// panel uses -- so the editor reads as part of the app instead of a pasted-in
+// widget with its own unrelated palette. This is the one part of "make it
+// like onlook.com" that's about visual cohesion rather than features: a
+// design tool should look like ONE surface, not a stack of components each
+// carrying their own hardcoded theme.
+//
+// SYNTAX TOKEN colors (keyword/string/number/etc. below) are intentionally
+// NOT remapped to globals.css -- that file defines ~10 general-purpose UI
+// tokens (background/foreground/accent/border/5 chart colors), not the
+// dozen-plus distinct, contrast-tuned hues real syntax highlighting needs.
+// Forcing keywords/strings/types onto --chart-1..5 would visibly reduce
+// readability for a purely cosmetic win. Kept the curated One Dark palette
+// (https://github.com/zed-industries/zed/blob/main/assets/themes/one_dark.json)
+// for tokens; happy to swap this for a different named theme if preferred.
+const editorChromeTheme = EditorView.theme(
   {
-    "&": { backgroundColor: "#1c1c1c", color: "#abb2bf", height: "100%" },
+    "&": { backgroundColor: "var(--background)", color: "var(--foreground)", height: "100%" },
     ".cm-content": {
       fontFamily: "var(--font-jetbrains-mono), 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
       fontSize: "13px",
       lineHeight: "1.72",
-      caretColor: "#528bff",
+      caretColor: "var(--ring)",
       padding: "0 0 80px 0",
     },
-    ".cm-cursor": { borderLeftColor: "#528bff", borderLeftWidth: "2px" },
-    ".cm-cursor-secondary": { borderLeftColor: "rgba(82,139,255,0.5)" },
+    ".cm-cursor": { borderLeftColor: "var(--ring)", borderLeftWidth: "2px" },
+    ".cm-cursor-secondary": { borderLeftColor: "color-mix(in oklch, var(--ring) 50%, transparent)" },
     "&.cm-focused": { outline: "none" },
 
     // Gutters
     ".cm-gutters": {
-      backgroundColor: "#1c1c1c",
-      color: "#3b3f4a",
+      backgroundColor: "var(--background)",
+      color: "var(--muted-foreground)",
       border: "none",
       paddingRight: "6px",
       minWidth: "44px",
@@ -46,46 +60,47 @@ const zedDarkBase = EditorView.theme(
       minWidth: "32px",
       textAlign: "right",
     },
-    ".cm-activeLineGutter": { backgroundColor: "transparent", color: "#5c6370" },
+    ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--foreground)" },
     ".cm-foldGutter .cm-gutterElement": {
-      color: "#3b3f4a",
+      color: "var(--muted-foreground)",
       cursor: "pointer",
       padding: "0 4px",
     },
-    ".cm-foldGutter .cm-gutterElement:hover": { color: "#5c6370" },
+    ".cm-foldGutter .cm-gutterElement:hover": { color: "var(--foreground)" },
 
     // Active line
-    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.028)" },
+    ".cm-activeLine": { backgroundColor: "color-mix(in oklch, var(--accent) 40%, transparent)" },
 
     // Selections
-    ".cm-selectionBackground": { backgroundColor: "#3e4451 !important" },
-    "&.cm-focused .cm-selectionBackground": { backgroundColor: "#3e4451 !important" },
-    "::selection": { backgroundColor: "#3e4451" },
+    ".cm-selectionBackground": { backgroundColor: "color-mix(in oklch, var(--accent) 65%, transparent) !important" },
+    "&.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in oklch, var(--accent) 65%, transparent) !important" },
+    "::selection": { backgroundColor: "color-mix(in oklch, var(--accent) 65%, transparent)" },
 
     // Bracket matching
     ".cm-matchingBracket": {
-      backgroundColor: "rgba(97,175,239,0.12)",
-      outline: "1px solid rgba(97,175,239,0.35)",
+      backgroundColor: "color-mix(in oklch, var(--ring) 15%, transparent)",
+      outline: "1px solid color-mix(in oklch, var(--ring) 40%, transparent)",
       borderRadius: "2px",
     },
 
-    // Scrollbars — ultra-thin Zed style
+    // Scrollbars
     ".cm-scroller": {
       overflow: "auto",
       scrollbarWidth: "thin",
-      scrollbarColor: "#2a2d35 transparent",
+      scrollbarColor: "var(--border) transparent",
     },
     ".cm-scroller::-webkit-scrollbar": { width: "5px", height: "5px" },
     ".cm-scroller::-webkit-scrollbar-track": { background: "transparent" },
     ".cm-scroller::-webkit-scrollbar-thumb": {
-      background: "#2a2d35",
+      background: "var(--border)",
       borderRadius: "3px",
     },
 
     // Autocomplete tooltip
     ".cm-tooltip": {
-      backgroundColor: "#21252b",
-      border: "1px solid rgba(255,255,255,0.08)",
+      backgroundColor: "var(--popover)",
+      color: "var(--popover-foreground)",
+      border: "1px solid var(--border)",
       borderRadius: "6px",
       boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
     },
@@ -94,10 +109,15 @@ const zedDarkBase = EditorView.theme(
       fontFamily: "var(--font-jetbrains-mono), monospace",
     },
     ".cm-tooltip-autocomplete ul li[aria-selected]": {
-      backgroundColor: "#2c313a",
+      backgroundColor: "var(--accent)",
+      color: "var(--accent-foreground)",
     },
 
-    // Search matches
+    // Search matches — no equivalent semantic token exists in globals.css
+    // (it only defines background/foreground/card/popover/muted/accent/
+    // destructive/border/input/primary/ring). Reusing --destructive here
+    // would read as an error state, so this one stays a literal amber
+    // rather than being forced onto a token that doesn't fit.
     ".cm-searchMatch": {
       backgroundColor: "rgba(209,154,102,0.25)",
       outline: "1px solid rgba(209,154,102,0.5)",
@@ -105,10 +125,12 @@ const zedDarkBase = EditorView.theme(
     ".cm-searchMatch-selected": { backgroundColor: "rgba(209,154,102,0.4)" },
 
     // Indent guides
-    ".cm-indent-markers": { "--indent-marker-bg-color": "#2a2d35" },
+    ".cm-indent-markers": { "--indent-marker-bg-color": "var(--border)" },
   },
   { dark: true },
 );
+// Kept as an alias so nothing else in this file has to change name-for-name.
+const zedDarkBase = editorChromeTheme;
 
 const zedDarkHighlight = HighlightStyle.define([
   // Keywords: purple (c678dd)
@@ -363,7 +385,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
   /* ── Render ── */
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden" style={{ background: '#1c1c1c' }}>
+    <div className="w-full h-full flex flex-col overflow-hidden" style={{ background: 'var(--background)' }}>
       {/* ────── Zed-style Tab strip ──────────────────────── */}
       <div
         ref={tabsRef}
@@ -371,8 +393,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         style={{
           height: '36px',
           scrollbarWidth: 'none',
-          background: '#181818',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: 'var(--muted)',
+          borderBottom: '1px solid var(--border)',
         }}
         role="tablist"
       >
@@ -394,8 +416,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
                 minWidth: 0,
                 maxWidth: '180px',
                 borderRight: '1px solid rgba(255,255,255,0.05)',
-                color: isActive ? '#e2e8f0' : 'rgba(148,163,184,0.45)',
-                background: isActive ? '#1c1c1c' : 'transparent',
+                color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)',
+                background: isActive ? 'var(--background)' : 'transparent',
               }}
             >
               {/* Zed-style: 2px colored square instead of round dot */}
@@ -437,7 +459,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
               {isActive && (
                 <span
                   className="absolute bottom-0 left-0 right-0"
-                  style={{ height: '1.5px', background: '#a855f7' }}
+                  style={{ height: '1.5px', background: 'var(--ring)' }}
                 />
               )}
             </button>
@@ -454,8 +476,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           style={{
             height: '24px',
             scrollbarWidth: 'none',
-            background: '#1c1c1c',
-            borderBottom: '1px solid rgba(255,255,255,0.04)',
+            background: 'var(--background)',
+            borderBottom: '1px solid var(--border)',
           }}
         >
           {pathParts.map((part, i) => (
@@ -524,12 +546,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             onUpdate={handleUpdate as never}
             basicSetup={BASIC_SETUP}
             className="h-full"
-            style={{ height: '100%', background: '#1c1c1c' }}
+            style={{ height: '100%', background: 'var(--background)' }}
           />
         ) : (
           <div
             className="w-full h-full flex flex-col items-center justify-center gap-3 select-none"
-            style={{ background: '#1c1c1c', color: 'rgba(255,255,255,0.12)' }}
+            style={{ background: 'var(--background)', color: 'var(--muted-foreground)' }}
           >
             <Circle size={28} strokeWidth={1} style={{ opacity: 0.2 }} />
             <p style={{ fontSize: '11px', fontFamily: "var(--font-jetbrains-mono), monospace" }}>

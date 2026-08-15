@@ -63,7 +63,7 @@ export const BuilderTopBar: React.FC<BuilderTopBarProps> = ({
               {mode === m && (
                 <span
                   className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-sm"
-                  style={{ background: "#a855f7" }}
+                  style={{ background: "var(--ring)" }}
                 />
               )}
             </button>

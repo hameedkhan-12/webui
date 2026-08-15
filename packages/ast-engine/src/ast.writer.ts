@@ -325,6 +325,115 @@ export function removeClass(source: string, op: RemoveClassOperation): string {
   )
 }
 /**
+ * Rewrite ONE field of ONE item in a source-literal array declaration --
+ * `const <iterableName> = [ {..}, {..}, .. ]` -- identified by `index`, in
+ * place. This is how per-card editing inside a `.map()` actually works: the
+ * JSX template itself is shared by every rendered instance (see
+ * getRepeatContext), but the DATA it maps over lives at one address per
+ * item, so editing item N's field is well-defined even though editing "item
+ * N's JSX" isn't.
+ *
+ * Refuses (throws AstMutationError) rather than guessing when:
+ * - the array declaration can't be found in this file
+ * - the element at `index` isn't an object literal
+ * - the field doesn't exist, or its current value isn't a plain
+ *   string/number/boolean literal (e.g. it's a template literal, a nested
+ *   object, or a computed expression) -- overwriting those could silently
+ *   drop real logic.
+ */
+export function updateArrayItemField(
+  source: string,
+  iterableName: string,
+  index: number,
+  key: string,
+  newValue: string | number | boolean,
+): string {
+  const ast = parseSource(source)
+  if (!ast) {
+    throw new AstMutationError(`Could not parse source`, iterableName)
+  }
+
+  let targetProp: t.ObjectProperty | null = null
+  let foundDeclaration = false
+  let foundElement = false
+
+  traverse(ast, {
+    VariableDeclarator(path) {
+      if (targetProp || foundDeclaration) return
+      if (
+        !t.isIdentifier(path.node.id) ||
+        path.node.id.name !== iterableName ||
+        !path.node.init ||
+        !t.isArrayExpression(path.node.init)
+      ) {
+        return
+      }
+      foundDeclaration = true
+
+      const el = path.node.init.elements[index]
+      if (!el || !t.isObjectExpression(el)) return
+      foundElement = true
+
+      for (const prop of el.properties) {
+        if (!t.isObjectProperty(prop)) continue
+        const propKey = t.isIdentifier(prop.key)
+          ? prop.key.name
+          : t.isStringLiteral(prop.key)
+            ? prop.key.value
+            : null
+        if (propKey === key) {
+          targetProp = prop
+          break
+        }
+      }
+    },
+  })
+
+  if (!foundDeclaration) {
+    throw new AstMutationError(
+      `No literal array declaration "const ${iterableName} = [...]" found in this file -- ` +
+        `the data may live in another file, come from props, or be fetched at runtime, none of which this engine can rewrite.`,
+      iterableName,
+    )
+  }
+  if (!foundElement) {
+    throw new AstMutationError(
+      `Item ${index} of "${iterableName}" isn't a plain object literal -- refusing to guess at its shape.`,
+      iterableName,
+    )
+  }
+  if (!targetProp) {
+    throw new AstMutationError(
+      `Field "${key}" not found on item ${index} of "${iterableName}".`,
+      iterableName,
+    )
+  }
+
+  const valueNode = (targetProp as t.ObjectProperty).value
+  if (valueNode.start == null || valueNode.end == null) {
+    throw new AstMutationError(
+      `Could not locate source range for field "${key}" on item ${index} of "${iterableName}".`,
+      iterableName,
+    )
+  }
+  if (
+    !t.isStringLiteral(valueNode) &&
+    !t.isNumericLiteral(valueNode) &&
+    !t.isBooleanLiteral(valueNode)
+  ) {
+    throw new AstMutationError(
+      `Field "${key}" on item ${index} of "${iterableName}" isn't a plain string/number/boolean literal -- ` +
+        `refusing to overwrite an expression (could be logic, not just data).`,
+      iterableName,
+    )
+  }
+
+  const newCode =
+    typeof newValue === 'string' ? JSON.stringify(newValue) : String(newValue)
+  return source.slice(0, valueNode.start) + newCode + source.slice(valueNode.end)
+}
+
+/**
  * Insert a new JSX element as a SIBLING of the element identified by
  * `targetAuraId` -- immediately before or after it, at the same nesting level.
  * Use insertElement instead if you want to insert AS A CHILD of a target.

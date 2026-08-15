@@ -57,14 +57,43 @@ export function tagWithCounter(
       const isIntrinsic = tagName[0] === tagName[0]!.toLowerCase()
       if (isIntrinsic && !includeIntrinsic) return
 
-      const alreadyTagged = node.attributes.some(
-        (attr) => t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name) && attr.name.name === 'data-id'
+      const existingDataId = node.attributes.find(
+        (attr): attr is t.JSXAttribute =>
+          t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name) && attr.name.name === 'data-id'
       )
+      // A `data-id` attribute with a NON-literal value (e.g. an app-authored
+      // `data-id={`card-glow-${i}`}`, unrelated to this tagging system) can
+      // never be resolved by findOpeningElement anyway (it requires a plain
+      // StringLiteral -- see ast.parser.ts), so treating it as "already
+      // tagged" and skipping was silently leaving such elements permanently
+      // unselectable/uneditable, with no error until someone actually tried
+      // to click one (surfaces downstream as "could not find any file
+      // containing data-id=...", since the runtime value never appears
+      // literally in source). Only a STRING-LITERAL data-id genuinely means
+      // "already tagged, respect it."
+      const alreadyTagged =
+        (existingDataId != null && t.isStringLiteral(existingDataId.value)) ||
+        node.attributes.some(
+          (attr) =>
+            t.isJSXAttribute(attr) &&
+            t.isJSXIdentifier(attr.name) &&
+            attr.name.name === 'data-aura-id' &&
+            t.isStringLiteral(attr.value)
+        )
       if (alreadyTagged) return
 
       const id = `el-${counter++}`
       const insertAt = node.selfClosing ? node.end! - 2 : node.end! - 1
-      insertions.push({ at: insertAt, text: ` data-id="${id}"` })
+      // If there's a foreign, non-literal `data-id` already present, tag via
+      // the separate `data-aura-id` attribute instead of `data-id` -- adding
+      // a SECOND `data-id` would either be invalid or (since JSX attributes
+      // behave like object properties -- last one wins) silently overwrite
+      // the app's own dynamic value at runtime, breaking whatever the
+      // generated app was using it for. `data-aura-id` never collides with
+      // app-authored code because it's not a real HTML/React convention
+      // anything would organically write.
+      const attrName = existingDataId ? 'data-aura-id' : 'data-id'
+      insertions.push({ at: insertAt, text: ` ${attrName}="${id}"` })
     },
   })
 

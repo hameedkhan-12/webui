@@ -41,6 +41,8 @@ import {
   deleteProjectSnapshots,
 } from "../lib/nodeModulesCache";
 import { usePersistentWorkspace } from "./usePersistentWorkspace";
+import { getRepeatContext, getBoundField, getStaticArrayInfo } from "@aura/ast-engine";
+import { stripAnsi, computePackageJsonHash, classifyTerminalLine } from "../lib/terminalUtils";
 
 // NOTE: `persistentCache.ts` (localStorage install-flag tracking) has been
 // removed from this file's imports. It was dead code — only cacheInstallState
@@ -107,13 +109,6 @@ export function useWorkspace() {
 
   const appendTerminalOutput = React.useCallback(
     (text: string, type: TerminalLine["type"] = "info") => {
-      const stripAnsi = (str: string) => {
-        return str.replace(
-          /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-          "",
-        );
-      };
-
       let detectedError: string | null = null;
       let shouldClearError = false;
 
@@ -129,21 +124,9 @@ export function useWorkspace() {
           const cleanText = stripAnsi(chunk).replace(/\r/g, "");
           if (!cleanText.trim() && chunk !== "") return;
 
-          const lower = cleanText.toLowerCase();
-          if (
-            lower.includes("failed to compile") ||
-            lower.includes("compile error") ||
-            lower.includes("module not found") ||
-            lower.includes("can't resolve")
-          ) {
-            detectedError = cleanText;
-          } else if (
-            lower.includes("compiled successfully") ||
-            lower.includes("ready in") ||
-            lower.includes("✓ ready")
-          ) {
-            shouldClearError = true;
-          }
+          const { detectedError: lineError, clearsError } = classifyTerminalLine(cleanText);
+          if (lineError) detectedError = lineError;
+          else if (clearsError) shouldClearError = true;
 
           if (isLineOverwrite && index === 0 && next.length > 0) {
             const lastLine = next[next.length - 1];
@@ -171,16 +154,7 @@ export function useWorkspace() {
     [],
   );
 
-  // Helper to compute hash of package.json for detecting changes
-  const computePackageJsonHash = (content: string): string => {
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(36);
-  };
+  // Package.json hashing lives in ../lib/terminalUtils.ts now (pure function, no closures)
 
   const registerServerReadyHandler = (wc: WebContainer) => {
     if (serverReadyRegisteredRef.current) return;
@@ -623,32 +597,86 @@ export function useWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Autosave to backend and persist locally
-  // Debounce is 5s (not 1.2s) to avoid saving while AI is still streaming files
+  // BUGFIX (reload reverts to stale/AI-generated code): this used to be a
+  // single 5s-debounced, fire-and-forget save (`void saveWorkspaceApi(...)`)
+  // with no flush on navigation. Any edit made in the last <5s before a
+  // reload/tab-close, or any save call that failed silently (network blip,
+  // expired token), was never persisted -- and the initial-load effect above
+  // always prefers the remote snapshot over the local cache when the remote
+  // fetch succeeds, so a stale remote silently wins on the next load. Two
+  // changes here: (1) `dirtyRef` tracks whether the in-memory state has
+  // unsaved changes, cleared only on a *confirmed successful* save, and
+  // failures are surfaced as a console line instead of swallowed; (2) a
+  // separate effect below flushes a save on `visibilitychange`/`pagehide` so
+  // navigating away no longer races the debounce timer.
+  const dirtyRef = React.useRef(false);
+
   React.useEffect(() => {
     if (!workspaceReady) return;
+    dirtyRef.current = true;
+
+    // Local persistence gets its OWN short debounce, decoupled from the 5s
+    // remote-save timer below. persistWorkspace does a synchronous
+    // JSON.stringify + localStorage.setItem, so calling it on every
+    // keystroke (files changes on every edit) would jank large projects --
+    // 800ms is short enough to survive most reloads without being on the
+    // hot path of typing.
+    const localTimer = setTimeout(() => persistWorkspace(files), 800);
+
     const timer = setTimeout(async () => {
       // Skip autosave while AI is actively generating — a forced save fires after completion
       if (isAiGeneratingRef.current) return;
       const token = await getToken({ skipCache: true });
-      void saveWorkspaceApi(files, folders, projectId, token);
-      // Also persist to localStorage for offline access
-      persistWorkspace(files);
+      const ok = await saveWorkspaceApi(files, folders, projectId, token);
+      if (ok) {
+        dirtyRef.current = false;
+      } else {
+        handleAddConsoleLine(
+          "Autosave failed — changes are kept locally and will retry on the next edit.",
+          "warning",
+        );
+      }
     }, 5000);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(localTimer);
+      clearTimeout(timer);
+    };
   }, [files, folders, workspaceReady, projectId, persistWorkspace]);
 
   /** Force a full save right now — called by useAI after streaming completes */
   const saveImmediately = React.useCallback(async () => {
     const token = await getToken({ skipCache: true });
-    await saveWorkspaceApi(
+    const ok = await saveWorkspaceApi(
       filesRef.current,
       foldersRef.current,
       projectId,
       token,
     );
+    if (ok) dirtyRef.current = false;
     persistWorkspace(filesRef.current);
+    return ok;
   }, [projectId, persistWorkspace]);
+
+  // Flush any unsaved changes when the tab is about to lose visibility or
+  // unload, instead of leaving them to the 5s debounce above. `visibilitychange`
+  // (hidden) fires reliably before the page is torn down for both a real close
+  // and a reload, and — unlike `beforeunload` — still gives an in-flight async
+  // fetch a real chance to complete since the document isn't gone yet.
+  React.useEffect(() => {
+    const flush = () => {
+      if (!dirtyRef.current) return;
+      void saveImmediately();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [saveImmediately]);
 
   const pushHistory = (entry: HistoryEntry) => {
     setHistoryStack((prev) => [...prev, entry]);
@@ -687,6 +715,7 @@ export function useWorkspace() {
   ) => {
     syncCoordinator.startApplying();
     try {
+      const prevFiles = filesRef.current;
       // Always read from refs so async callers (e.g. AI streaming loop) see current state
       const result = runTransaction(
         ops,
@@ -717,6 +746,47 @@ export function useWorkspace() {
         // Fire-and-forget bridge integration to register generated components
         void workspaceBridgeOnTransaction(op);
       });
+
+      // BUGFIX (visual-editor styling reverts when reloading the PREVIEW
+      // iframe, but survives a full page F5): syncOperationToWebContainer
+      // above only ever handled CREATE_FILE/DELETE_FILE/CREATE_FOLDER/
+      // DELETE_FOLDER by operation type. It never wrote the result of
+      // UPDATE_PROP/UPDATE_CLASS/UPDATE_ARRAY_ITEM_FIELD/INSERT_COMPONENT/
+      // REMOVE_COMPONENT/MOVE_COMPONENT to the WebContainer's actual
+      // filesystem -- and three of those (INSERT/REMOVE/MOVE_COMPONENT)
+      // don't even carry a filePath in their payload, so per-op-type
+      // handling isn't possible for them without duplicating the reducer's
+      // own file-resolution logic here.
+      //
+      // Those edits only ever reached (a) in-memory React `files` state and
+      // (b) a live DOM patch in the CURRENTLY-loaded iframe via
+      // postToPreview's SET_TEXT/APPLY_CLASS -- never the file the dev
+      // server actually compiles from. Clicking the toolbar's refresh
+      // button (`iframe.src = iframe.src` in Workspace.tsx) re-fetches from
+      // the dev server and gets back the stale, never-updated file. A full
+      // page F5 only happens to work because it re-mounts EVERY file fresh
+      // from React state into a brand-new WebContainer, which incidentally
+      // includes the edit by then.
+      //
+      // Diffing file content before/after the transaction and writing
+      // whatever actually changed is the general fix: it doesn't need to
+      // know which operation type touched which file, so it's automatically
+      // correct for every current (and future) content-mutating op, not
+      // just the three this bug report happened to surface.
+      const wc = webcontainerRef.current;
+      if (wc && filesRef.current !== prevFiles) {
+        for (const [path, file] of Object.entries(filesRef.current)) {
+          if (prevFiles[path]?.content !== file.content) {
+            void writeWebContainerFile(wc, path, file.content).catch((e) => {
+              console.error(
+                `[executeTransaction] Failed to sync ${path} to WebContainer after edit:`,
+                e,
+              );
+            });
+          }
+        }
+      }
+
       return result;
     } finally {
       syncCoordinator.stopApplying();
@@ -837,7 +907,18 @@ export function useWorkspace() {
 
     if (ops.length > 0) {
       executeTransaction(ops, `Update element props/classes`, "inspector");
-      if (selectedElement?.id === elementId) {
+      // BUGFIX: `elementId` here is always the STATIC sourceId (StylePanel/
+      // InspectorPanel call `onUpdateElement(filePath, sourceId, patch)`),
+      // never the runtime id. `selectedElement.id` is the RUNTIME id
+      // (data-aura-rt), minted fresh per DOM node so multiple .map()
+      // instances can be told apart on click. Those two ids live in
+      // different namespaces and are never equal -- comparing
+      // `selectedElement.id === elementId` was always false, so this branch
+      // never ran and the inspector's "active" state (alignment, spacing,
+      // color, etc.) kept showing the class list from the moment of
+      // selection instead of the class list actually being applied. The fix
+      // is to compare against `sourceId`, which IS what `elementId` is.
+      if (selectedElement?.sourceId === elementId) {
         setSelectedElement((prev) =>
           prev
             ? {
@@ -848,6 +929,120 @@ export function useWorkspace() {
             : null,
         );
       }
+    }
+  };
+
+  /**
+   * Wraps the raw ELEMENT_SELECTED payload from the preview iframe with a
+   * one-shot lookup into the current file's AST to determine whether the
+   * clicked node's static sourceId is shared by multiple rendered instances
+   * (i.e. it lives inside a `.map()`/`.flatMap()` callback), AND — new —
+   * whether this SPECIFIC instance can be edited independently of its
+   * siblings: is its text bound to a single `<item>.<field>` expression
+   * (getBoundField), and does that field resolve to a plain literal on a
+   * source-literal array (getStaticArrayInfo)? If both hold and the inspector
+   * script resolved which array index was actually clicked (el.repeatIndex),
+   * `arrayEditable` becomes true and handleUpdateArrayItemField can safely
+   * rewrite just that one item -- see packages/ast-engine's
+   * getRepeatContext/getBoundField/getStaticArrayInfo/updateArrayItemField.
+   */
+  const handleSelectElement = React.useCallback(
+    (el: SelectedElement | null) => {
+      if (!el || !el.sourceId) {
+        setSelectedElement(el);
+        return;
+      }
+      const source = filesRef.current[el.filePath]?.content;
+      if (!source) {
+        setSelectedElement(el);
+        return;
+      }
+      try {
+        const { isRepeated, iterableName, paramName } = getRepeatContext(
+          source,
+          el.sourceId,
+        );
+
+        if (!isRepeated) {
+          setSelectedElement({
+            ...el,
+            isRepeated: false,
+            repeatSourceName: null,
+            repeatIndex: null,
+            arrayFieldKey: null,
+            arrayEditable: false,
+            arrayItemCount: null,
+          });
+          return;
+        }
+
+        const arrayFieldKey = paramName
+          ? getBoundField(source, el.sourceId, paramName)
+          : null;
+
+        let arrayItemCount: number | null = null;
+        let arrayEditable = false;
+
+        if (iterableName) {
+          const arrayInfo = getStaticArrayInfo(source, iterableName);
+          if (arrayInfo) {
+            arrayItemCount = arrayInfo.itemCount;
+            arrayEditable =
+              arrayInfo.editable &&
+              arrayFieldKey != null &&
+              el.repeatIndex != null &&
+              el.repeatIndex >= 0 &&
+              el.repeatIndex < arrayInfo.itemCount &&
+              arrayInfo.items[el.repeatIndex]?.fields[arrayFieldKey] !==
+                undefined;
+          }
+        }
+
+        setSelectedElement({
+          ...el,
+          isRepeated,
+          repeatSourceName: iterableName,
+          repeatIndex: el.repeatIndex ?? null,
+          arrayFieldKey,
+          arrayEditable,
+          arrayItemCount,
+        });
+      } catch {
+        // Parse failure or anything unexpected -- fail soft, selection still works
+        setSelectedElement(el);
+      }
+    },
+    [],
+  );
+
+  /**
+   * Real per-card editing: rewrite ONE field of ONE item in a source-literal
+   * array, instead of the shared JSX template. Only ever called when
+   * selectedElement.arrayEditable is true (StylePanel gates the UI on it).
+   */
+  const handleUpdateArrayItemField = (
+    filePath: string,
+    iterableName: string,
+    index: number,
+    key: string,
+    value: string,
+  ) => {
+    executeTransaction(
+      [
+        {
+          type: "UPDATE_ARRAY_ITEM_FIELD",
+          payload: { filePath, iterableName, index, key, value },
+        },
+      ],
+      `Update ${iterableName}[${index}].${key}`,
+      "inspector",
+    );
+    if (
+      selectedElement?.repeatSourceName === iterableName &&
+      selectedElement?.repeatIndex === index &&
+      selectedElement?.arrayFieldKey === key
+    ) {
+      setSelectedElement((prev) => (prev ? { ...prev, text: value } : null));
     }
   };
 
@@ -969,6 +1164,7 @@ export function useWorkspace() {
     setShowFileTree,
     setShowInspector,
     setSelectedElement,
+    handleSelectElement,
     setElementCounter,
     setConsoleLines,
     setTerminalHistory,
@@ -984,6 +1180,7 @@ export function useWorkspace() {
     handleDeleteFolder,
     handleUpdateFile,
     handleUpdateElement,
+    handleUpdateArrayItemField,
     handleInsertComponent,
     handleDropComponent,
     handleElementDelete,

@@ -9,6 +9,7 @@ import {
   updateProp,
   updateChildren,
   setClasses,
+  updateArrayItemField,
   tagWithCounter,
   AstMutationError,
 } from "@aura/ast-engine";
@@ -61,6 +62,38 @@ function resolveFileForAuraId(
   return null;
 }
 
+/**
+ * Same idea as resolveFileForAuraId, for the array declaration an
+ * UPDATE_ARRAY_ITEM_FIELD op targets: trust the guessed filePath first (the
+ * array is almost always declared in the same file as the JSX that maps
+ * over it), fall back to scanning every file for a matching
+ * `const/let/var <name> = [` declaration.
+ */
+function resolveFileForIterable(
+  files: WorkspaceFiles,
+  guessedFilePath: string,
+  iterableName: string,
+): string | null {
+  const declPattern = new RegExp(
+    `\\b(?:const|let|var)\\s+${iterableName}\\s*=\\s*\\[`,
+  );
+
+  const guessed = files[guessedFilePath];
+  if (guessed && declPattern.test(guessed.content)) {
+    return guessedFilePath;
+  }
+
+  for (const [path, file] of Object.entries(files)) {
+    if (path === guessedFilePath) continue;
+    if (!/\.(tsx|jsx|ts|js)$/.test(path)) continue;
+    if (declPattern.test(file.content)) {
+      return path;
+    }
+  }
+
+  return null;
+}
+
 export interface ReducerResult {
   files: WorkspaceFiles;
   folders: string[];
@@ -86,12 +119,13 @@ export interface ReducerResult {
  * which is out of scope for this pass -- flagging it rather than silently
  * leaving it for a future surprise.
  *
- * ALSO WORTH KNOWING: as of this rewrite, none of INSERT_COMPONENT /
- * REMOVE_COMPONENT / MOVE_COMPONENT / UPDATE_PROP / UPDATE_CLASS are actually
- * dispatched anywhere in the current app (verified via a full grep across
- * apps/web/src). This reducer logic is presently unreachable dead code,
- * waiting on a real inspector/drag-and-drop UI to call it. That UI is not
- * part of this change.
+ * ALSO WORTH KNOWING (as of the pass that added UPDATE_ARRAY_ITEM_FIELD):
+ * UPDATE_PROP and UPDATE_CLASS were previously described here as
+ * "unreachable dead code" -- that was true at the time this comment was
+ * written, but is no longer accurate. useWorkspace.ts's handleUpdateElement
+ * dispatches both through executeTransaction -> runTransaction ->
+ * applyOperation (this file), for real, on every inspector edit. Leaving
+ * this note so nobody re-trusts the old claim without checking.
  */
 
 /** AstMutationError means "found the node, but refuse to touch it unsafely"
@@ -270,6 +304,39 @@ export function applyOperation(
       const nextContent = safeMutate(
         "UPDATE_CLASS",
         () => setClasses(file.content, nodeId, classes),
+        file.content,
+      );
+
+      return {
+        ...state,
+        files: {
+          ...files,
+          [resolvedPath]: {
+            ...file,
+            content: nextContent,
+          },
+        },
+      };
+    }
+    case "UPDATE_ARRAY_ITEM_FIELD": {
+      const { filePath: guessedFilePath, iterableName, index, key, value } =
+        op.payload;
+      const resolvedPath = resolveFileForIterable(
+        files,
+        guessedFilePath,
+        iterableName,
+      );
+      if (!resolvedPath) {
+        console.error(
+          `[operationReducer] UPDATE_ARRAY_ITEM_FIELD: could not find "const ${iterableName} = [...]" in any file`,
+        );
+        return state;
+      }
+      const file = files[resolvedPath]!;
+
+      const nextContent = safeMutate(
+        "UPDATE_ARRAY_ITEM_FIELD",
+        () => updateArrayItemField(file.content, iterableName, index, key, value),
         file.content,
       );
 

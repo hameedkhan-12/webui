@@ -89,14 +89,39 @@ export interface ComputedStyle {
 }
 
 export interface SelectedElement {
-  id: string; // The data-id attribute to identify the JSX element uniquely
-  sourceId: string | null; // The static data-id/data-aura-id baked into AST/JSX
+  id: string; // The RUNTIME id (data-aura-rt) -- unique per actual DOM node, never reused across .map() instances
+  sourceId: string | null; // The static data-id/data-aura-id baked into AST/JSX -- SHARED across every instance rendered from the same JSX template
   tagName: string;
   text: string;
   classes: string[];
   filePath: string; // The virtual file path where the element resides
   computedStyle?: Partial<ComputedStyle>; // Live computed CSS from the DOM
   rect?: { x: number; y: number; width: number; height: number }; // Bounding box
+  // Set once per selection by resolving sourceId against the current file's AST.
+  // True when this element's source JSX sits inside a .map()/.flatMap() callback --
+  // meaning edits made through `sourceId` touch the shared template and will visibly
+  // apply to every rendered instance, not just the one clicked. The inspector UI uses
+  // this to warn the user instead of silently doing something that looks card-specific
+  // but isn't.
+  isRepeated?: boolean;
+  repeatSourceName?: string | null;
+  // Set by the inspector script at click time: this node's position among
+  // every DOM instance sharing the same sourceId, in document order (0 =
+  // first rendered instance). Assumes render order matches array order,
+  // true for a plain `.map()` with no post-filter/sort -- good enough for
+  // the common "feature grid" / "pricing tiers" / "team members" case this
+  // targets, not a guarantee for every possible list.
+  repeatIndex?: number | null;
+  // The single data field this node's text is bound to (e.g. "title" for
+  // `{item.title}`), resolved from the source AST. Null if this node's
+  // children aren't a single simple `<param>.<field>` expression.
+  arrayFieldKey?: string | null;
+  // True only when ALL of: isRepeated, repeatIndex known, arrayFieldKey
+  // resolved, AND the underlying array is a literal `const x = [{...}]` in
+  // this file with that field present as a plain literal on that item --
+  // i.e. per-card text editing is actually possible, not just detected.
+  arrayEditable?: boolean;
+  arrayItemCount?: number | null;
 }
 
 
@@ -122,6 +147,7 @@ export type Operation =
   | { type: 'MOVE_COMPONENT'; payload: { nodeId: string; targetId: string } }
   | { type: 'UPDATE_PROP'; payload: { nodeId: string; filePath: string; key: string; value: unknown } }
   | { type: 'UPDATE_CLASS'; payload: { nodeId: string; filePath: string; classes: string[] } }
+  | { type: 'UPDATE_ARRAY_ITEM_FIELD'; payload: { filePath: string; iterableName: string; index: number; key: string; value: string | number | boolean } }
   | { type: 'CREATE_FILE'; payload: { path: string; template: string } }
   | { type: 'DELETE_FILE'; payload: { path: string } }
   | { type: 'CREATE_FOLDER'; payload: { path: string } }

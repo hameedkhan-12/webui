@@ -27,6 +27,13 @@ interface BuilderLeftPanelProps {
     elementId: string,
     updatedProps: { text?: string; classes?: string[] },
   ) => void;
+  onUpdateArrayItemField: (
+    filePath: string,
+    iterableName: string,
+    index: number,
+    key: string,
+    value: string,
+  ) => void;
   onSelectLayer: (dataId: string, tag: string, classes: string[]) => void;
   onInsertComponent: (dragData: string) => void;
 
@@ -62,6 +69,7 @@ export const BuilderLeftPanel: React.FC<BuilderLeftPanelProps> = ({
   selectedElement,
   onSelectElement,
   onUpdateElement,
+  onUpdateArrayItemField,
   onSelectLayer,
   onInsertComponent,
   sessions,
@@ -114,14 +122,14 @@ export const BuilderLeftPanel: React.FC<BuilderLeftPanelProps> = ({
               className="relative w-8 h-8 flex items-center justify-center rounded-md transition-all"
               style={{
                 color: isActive ? "#a78bfa" : "rgba(148,163,184,0.4)",
-                background: isActive ? "rgba(168,85,247,0.12)" : "transparent",
+                background: isActive ? "color-mix(in oklch, var(--ring) 12%, transparent)" : "transparent",
               }}
             >
               <Icon size={14} />
               {isActive && (
                 <span
                   className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r-sm"
-                  style={{ background: "#a855f7" }}
+                  style={{ background: "var(--ring)" }}
                 />
               )}
             </button>
@@ -172,7 +180,7 @@ export const BuilderLeftPanel: React.FC<BuilderLeftPanelProps> = ({
                   {isActive && (
                     <span
                       className="absolute bottom-0 left-0 right-0 h-[2px]"
-                      style={{ background: "#a855f7" }}
+                      style={{ background: "var(--ring)" }}
                     />
                   )}
                 </button>
@@ -205,6 +213,7 @@ export const BuilderLeftPanel: React.FC<BuilderLeftPanelProps> = ({
                 selectedElement={selectedElement}
                 onClose={() => onSelectElement(null)}
                 onUpdateElement={onUpdateElement}
+                onUpdateArrayItemField={onUpdateArrayItemField}
               />
             )}
 

@@ -3,8 +3,17 @@ export {
   findNodeByAuraId,
   extractProps,
   extractClasses,
+  getRepeatContext,
+  getBoundField,
+  getStaticArrayInfo,
 } from './ast.parser.js'
-export type { ParsedNode } from './ast.parser.js'
+export type {
+  ParsedNode,
+  RepeatContext,
+  StaticArrayFieldValue,
+  StaticArrayItem,
+  StaticArrayInfo,
+} from './ast.parser.js'
 
 export {
   updateProp,
@@ -18,6 +27,7 @@ export {
   insertIntoFileRoot,
   deleteElement,
   moveElement,
+  updateArrayItemField,
   AstMutationError,
 } from './ast.writer.js'
 export type { InsertElementOptions } from './ast.writer.js'

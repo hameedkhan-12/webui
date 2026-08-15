@@ -7,135 +7,6 @@
 @source "../../../../packages/renderer/src/**/*.{ts,tsx}";
 
 
-/* ── Aura IDE — CodeMirror overrides ───────────────────── */
-
-/* Make the CodeMirror editor fill its parent perfectly */
-.aura-editor .cm-editor {
-  height: 100%;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-/* Remove the default CodeMirror focused outline */
-.aura-editor .cm-editor.cm-focused {
-  outline: none;
-}
-
-/* Seamless gutter — same background as editor */
-.aura-editor .cm-gutters {
-  background-color: #070913 !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.04) !important;
-  user-select: none;
-  min-width: 44px;
-}
-
-.aura-editor .cm-lineNumbers .cm-gutterElement {
-  padding: 0 12px 0 8px;
-  font-size: 11px;
-  color: #2d3f5a;
-}
-
-.aura-editor .cm-activeLineGutter {
-  background-color: #0c1525 !important;
-  color: #6b7fa3 !important;
-}
-
-/* Active line highlight */
-.aura-editor .cm-activeLine {
-  background-color: #0c1525 !important;
-}
-
-/* Selection */
-.aura-editor .cm-selectionBackground {
-  background-color: rgba(168, 85, 247, 0.14) !important;
-}
-
-.aura-editor .cm-focused .cm-selectionBackground {
-  background-color: rgba(168, 85, 247, 0.18) !important;
-}
-
-/* Cursor — brand purple */
-.aura-editor .cm-cursor {
-  border-left-color: #a855f7 !important;
-  border-left-width: 2px;
-}
-
-/* Matching bracket highlight */
-.aura-editor .cm-matchingBracket {
-  background-color: rgba(168, 85, 247, 0.15) !important;
-  outline: 1px solid rgba(168, 85, 247, 0.3) !important;
-  border-radius: 2px;
-}
-
-/* Autocompletion tooltip */
-.aura-editor .cm-tooltip {
-  background-color: #0d1628 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
-  overflow: hidden;
-}
-
-.aura-editor .cm-tooltip-autocomplete ul li {
-  font-size: 12px !important;
-  padding: 4px 10px !important;
-  color: #94a3b8 !important;
-}
-
-.aura-editor .cm-tooltip-autocomplete ul li[aria-selected],
-.aura-editor .cm-tooltip-autocomplete ul li:hover {
-  background-color: rgba(168, 85, 247, 0.12) !important;
-  color: #e2e8f0 !important;
-}
-
-/* Search panel */
-.aura-editor .cm-panels {
-  background-color: #0d1628 !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
-}
-
-.aura-editor .cm-searchMatch {
-  background-color: rgba(168, 85, 247, 0.2) !important;
-  border-radius: 2px;
-}
-
-.aura-editor .cm-searchMatch-selected {
-  background-color: rgba(168, 85, 247, 0.4) !important;
-}
-
-/* Fold gutter */
-.aura-editor .cm-foldGutter .cm-gutterElement {
-  color: #2d3f5a !important;
-}
-
-.aura-editor .cm-foldGutter .cm-gutterElement:hover {
-  color: #a855f7 !important;
-}
-
-/* Scrollbars — thin and unobtrusive */
-.aura-editor .cm-scroller {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(168, 85, 247, 0.2) transparent;
-}
-
-.aura-editor .cm-scroller::-webkit-scrollbar {
-  width: 4px;
-  height: 6px;
-}
-
-.aura-editor .cm-scroller::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.aura-editor .cm-scroller::-webkit-scrollbar-thumb {
-  background-color: rgba(168, 85, 247, 0.18);
-  border-radius: 4px;
-}
-
-.aura-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(168, 85, 247, 0.35);
-}
-
 /* Hide horizontal scrollbar in tab bar and breadcrumb */
 .scrollbar-none {
   scrollbar-width: none;
@@ -178,47 +49,39 @@
 }
 
 @layer base {
+  /* Collapsed to dark-only: the media-query light/dark split below used to
+     mean a user with a light OS theme got a white --background/--foreground
+     here while every other component in the app (CodeEditor, StylePanel,
+     Workspace, BuilderLeftPanel, ...) is hardcoded dark with no light
+     variant at all -- a real, visible bug, not just an inconsistency. Since
+     nothing else in the app actually supports light mode, :root now IS the
+     dark palette instead of conditionally becoming it. */
   :root {
-    --background: #ffffff;
-    --foreground: #000000;
-    --card: #ffffff;
-    --card-foreground: #000000;
-    --popover: #ffffff;
-    --popover-foreground: #000000;
-    --muted: #f5f5f5;
-    --muted-foreground: #737373;
-    --accent: #000000;
-    --accent-foreground: #fafafa;
-    --destructive: #ef4444;
-    --destructive-foreground: #fafafa;
-    --border: #e5e5e5;
-    --input: #e5e5e5;
-    --primary: #000000;
-    --primary-foreground: #fafafa;
-    --ring: #000000;
+    --background: #000000;
+    --foreground: #fafafa;
+    --card: #000000;
+    --card-foreground: #fafafa;
+    --popover: #000000;
+    --popover-foreground: #fafafa;
+    --muted: #262626;
+    --muted-foreground: #a3a3a3;
+    --accent: #fafafa;
+    --accent-foreground: #000000;
+    --destructive: #f87171;
+    --destructive-foreground: #000000;
+    --border: #262626;
+    --input: #262626;
+    --primary: #fafafa;
+    --primary-foreground: #000000;
+    /* Brand accent — this app's actual interactive/selection color used
+       throughout the UI (StylePanel, CodeEditor caret/tabs, layers panel,
+       inspector overlay) is purple #a855f7, not the shadcn-default
+       black/gray this file shipped with. Wiring it into --ring makes every
+       component that already does `outline: var(--ring)` / focus rings
+       pick it up automatically instead of each component hardcoding its
+       own literal. */
+    --ring: #a855f7;
     --radius: 0.5rem;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --background: #000000;
-      --foreground: #fafafa;
-      --card: #000000;
-      --card-foreground: #fafafa;
-      --popover: #000000;
-      --popover-foreground: #fafafa;
-      --muted: #262626;
-      --muted-foreground: #a3a3a3;
-      --accent: #fafafa;
-      --accent-foreground: #000000;
-      --destructive: #f87171;
-      --destructive-foreground: #000000;
-      --border: #262626;
-      --input: #262626;
-      --primary: #fafafa;
-      --primary-foreground: #000000;
-      --ring: #a3a3a3;
-    }
   }
 }
 

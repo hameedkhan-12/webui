@@ -82,8 +82,14 @@ const Workspace: React.FC = () => {
 
   const handleSelectLayer = React.useCallback(
     (dataId: string, tag: string, classes: string[]) => {
-      workspace.setSelectedElement({
+      // The layers tree only knows the static source id (there's no live DOM
+      // node / runtime id when selecting from the tree instead of clicking
+      // the canvas) -- set both id and sourceId to it so handleUpdateElement's
+      // `selectedElement.sourceId === elementId` check still matches and the
+      // inspector's active-state stays in sync after an edit made this way.
+      workspace.handleSelectElement({
         id: dataId,
+        sourceId: dataId,
         tagName: tag,
         classes,
         text: "",
@@ -121,8 +127,9 @@ const Workspace: React.FC = () => {
           files={workspace.files}
           activeFile={workspace.activeFile}
           selectedElement={workspace.selectedElement}
-          onSelectElement={workspace.setSelectedElement}
+          onSelectElement={workspace.handleSelectElement}
           onUpdateElement={workspace.handleUpdateElement}
+          onUpdateArrayItemField={workspace.handleUpdateArrayItemField}
           onSelectLayer={handleSelectLayer}
           onInsertComponent={workspace.handleInsertComponent}
           sessions={ai.sessions}
@@ -161,7 +168,7 @@ const Workspace: React.FC = () => {
                 onDeleteFile={workspace.handleDeleteFile}
                 onDeleteFolder={workspace.handleDeleteFolder}
                 selectedElement={workspace.selectedElement}
-                onSelectElement={workspace.setSelectedElement}
+                onSelectElement={workspace.handleSelectElement}
                 designMode={workspace.showInspector}
                 onAddConsoleLine={workspace.handleAddConsoleLine}
                 devServerActive={workspace.devServerActive}

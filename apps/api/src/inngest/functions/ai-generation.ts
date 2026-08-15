@@ -195,8 +195,10 @@ Follow these standards (Bolt.ai Professional Standard):
 
 
 5. Visual Inspector & CMS Tagging (CRITICAL):
-   - You MUST assign a unique \`data-id\` attribute to EVERY JSX element you write (e.g. \`<main data-id="main-root">\`, \`<h1 data-id="hero-title">\`, \`<button data-id="btn-cta">\`, \`<div data-id="card-1">\`).
-   - Use meaningful IDs derived from the component context (e.g. \`header-logo\`, \`nav-item-home\`, \`stat-value-1\`, \`footer-link-about\`).
+   - You MUST assign a unique, STATIC string \`data-id\` attribute to every JSX element you write that is NOT inside a \`.map()\`/\`.flatMap()\` callback (e.g. \`<main data-id="main-root">\`, \`<h1 data-id="hero-title">\`, \`<button data-id="btn-cta">\`).
+   - Use meaningful ids derived from the component context (e.g. \`header-logo\`, \`nav-item-home\`, \`stat-value-1\`, \`footer-link-about\`). NEVER a computed or dynamic value (e.g. never \`data-id={\`card-\${i}\`}\`) — a \`.map()\` callback's JSX is written ONCE in source but rendered many times, so there is no such thing as a genuinely unique static id from inside it. A computed id cannot be resolved by the design editor and will silently make that element permanently unselectable and uneditable there.
+   - For elements INSIDE a \`.map()\`/\`.flatMap()\` callback: do NOT add a \`data-id\` at all. The platform tags these automatically at build time with a stable id the design editor can resolve per rendered instance. Adding your own here only breaks that.
+   - When a \`.map()\` renders static, non-fetched content (feature grids, pricing tiers, testimonials, team members, FAQs, and similar), define the data as a literal array of plain objects in the SAME file (e.g. \`const features = [{ title: "Fast", desc: "..." }, ...]\`) rather than fetching it or hand-writing separate JSX per item. This is what lets the visual editor edit one card's text independently of its siblings — it can only do that when the underlying data is a literal array it can see and safely rewrite. Keep each object's fields as plain strings/numbers/booleans, not nested objects or expressions, wherever the content itself is just text/numbers.
    - This is strictly required so the visual design editor & CMS engine can select and edit elements.
 
 Rules:

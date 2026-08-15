@@ -44,7 +44,11 @@ interface UseAiProps {
   projectId: string;
   webcontainerStatus?: "idle" | "booting" | "ready" | "error";
   /** Force a full workspace save to the DB (called after AI generation finishes) */
-  saveImmediately?: () => Promise<void>;
+  // Widened to Promise<unknown>: useWorkspace's saveImmediately now resolves
+  // to a success boolean (used internally for dirty-tracking) -- useAI only
+  // awaits it for sequencing and never reads the result, so this stays
+  // structurally compatible regardless of what the caller's version returns.
+  saveImmediately?: () => Promise<unknown>;
   /** Ref to suppress autosave timer while AI is streaming files */
   isAiGeneratingRef?: React.MutableRefObject<boolean>;
 }

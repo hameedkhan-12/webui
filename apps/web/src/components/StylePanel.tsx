@@ -253,8 +253,8 @@ const SpacingBox: React.FC<{
         <div
           className="w-24 h-14 rounded border flex items-center justify-center p-1"
           style={{
-            borderColor: "rgba(168,85,247,0.3)",
-            background: "rgba(168,85,247,0.05)",
+            borderColor: "color-mix(in oklch, var(--ring) 30%, transparent)",
+            background: "color-mix(in oklch, var(--ring) 5%, transparent)",
           }}
         >
           <div className="flex flex-col items-center gap-0.5">
@@ -264,8 +264,8 @@ const SpacingBox: React.FC<{
               <div
                 className="w-6 h-6 rounded flex items-center justify-center"
                 style={{
-                  background: "rgba(168,85,247,0.2)",
-                  border: "1px solid rgba(168,85,247,0.4)",
+                  background: "color-mix(in oklch, var(--ring) 20%, transparent)",
+                  border: "1px solid color-mix(in oklch, var(--ring) 40%, transparent)",
                 }}
               >
                 <span className="text-[7px] text-purple-300 font-mono">
@@ -294,12 +294,20 @@ interface StylePanelProps {
     elementId: string,
     updatedProps: { text?: string; classes?: string[] },
   ) => void;
+  onUpdateArrayItemField: (
+    filePath: string,
+    iterableName: string,
+    index: number,
+    key: string,
+    value: string,
+  ) => void;
 }
 
 export const StylePanel: React.FC<StylePanelProps> = ({
   selectedElement,
   onClose,
   onUpdateElement,
+  onUpdateArrayItemField,
 }) => {
   const [newClassInput, setNewClassInput] = React.useState("");
 
@@ -336,6 +344,12 @@ export const StylePanel: React.FC<StylePanelProps> = ({
     classes,
     computedStyle,
     rect,
+    isRepeated,
+    repeatSourceName,
+    repeatIndex,
+    arrayFieldKey,
+    arrayEditable,
+    arrayItemCount,
   } = selectedElement;
 
   const update = (patch: { text?: string; classes?: string[] }) => {
@@ -350,7 +364,32 @@ export const StylePanel: React.FC<StylePanelProps> = ({
       }
     }
 
-    if (sourceId) {
+    // Text on a per-card-editable repeated element goes through the
+    // array-item writer, not the generic JSX-child writer: its child is a
+    // data binding like {item.title}, not plain text, so onUpdateElement's
+    // underlying updateChildren would correctly REFUSE it as "non-text
+    // children" -- previously this meant the edit looked like it worked
+    // (the preview updates via SET_TEXT above) but silently never reached
+    // the file. See packages/ast-engine's updateArrayItemField.
+    const textGoesToArrayItem =
+      patch.text !== undefined &&
+      arrayEditable &&
+      repeatSourceName != null &&
+      repeatIndex != null &&
+      arrayFieldKey != null;
+
+    if (textGoesToArrayItem) {
+      onUpdateArrayItemField(
+        filePath,
+        repeatSourceName!,
+        repeatIndex!,
+        arrayFieldKey!,
+        patch.text!,
+      );
+      if (patch.classes !== undefined && sourceId) {
+        onUpdateElement(filePath, sourceId, { classes: patch.classes });
+      }
+    } else if (sourceId) {
       onUpdateElement(filePath, sourceId, patch);
     } else {
       console.warn(
@@ -414,7 +453,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({
         <div className="flex items-center gap-1.5 min-w-0">
           <span
             className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase shrink-0"
-            style={{ background: "rgba(168,85,247,0.15)", color: "#a78bfa" }}
+            style={{ background: "color-mix(in oklch, var(--ring) 15%, transparent)", color: "#a78bfa" }}
           >
             {tagName.toLowerCase()}
           </span>
@@ -451,6 +490,55 @@ export const StylePanel: React.FC<StylePanelProps> = ({
           </span>
           <span>X: {Math.round(rect.x)}</span>
           <span>Y: {Math.round(rect.y)}</span>
+        </div>
+      )}
+
+      {/* Repeated-element notice -- shown when this node's sourceId is shared
+          across multiple rendered instances (inside a .map()). Two distinct
+          states: arrayEditable means text edits on THIS card are isolated to
+          its one data item (see updateArrayItemField); otherwise style/class
+          edits still visibly apply to every card sharing the template, and
+          text edits specifically will not persist (see the update() comment
+          above), so say so plainly instead of letting it look like it worked. */}
+      {isRepeated && arrayEditable && (
+        <div
+          className="shrink-0 px-3 py-2 border-b flex items-start gap-2"
+          style={{
+            borderColor: "color-mix(in oklch, var(--ring) 25%, transparent)",
+            background: "color-mix(in oklch, var(--ring) 8%, transparent)",
+          }}
+        >
+          <Layers size={12} className="text-purple-400 mt-0.5 shrink-0" />
+          <p className="text-[10px] leading-relaxed text-purple-300/90">
+            Editing item {(repeatIndex ?? 0) + 1}
+            {arrayItemCount ? ` of ${arrayItemCount}` : ""} in{" "}
+            <code className="text-purple-200">{repeatSourceName}</code>. Text
+            changes apply to just this item. Style/class changes still apply
+            to every item using this template.
+          </p>
+        </div>
+      )}
+      {isRepeated && !arrayEditable && (
+        <div
+          className="shrink-0 px-3 py-2 border-b flex items-start gap-2"
+          style={{
+            borderColor: "rgba(245,158,11,0.25)",
+            background: "rgba(245,158,11,0.08)",
+          }}
+        >
+          <Layers size={12} className="text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-[10px] leading-relaxed text-amber-300/90">
+            This element is inside {repeatSourceName ? (
+              <code className="text-amber-200">{repeatSourceName}.map()</code>
+            ) : (
+              "a list (.map())"
+            )}
+            . Style and class changes apply to every item rendered from this
+            template. Text here isn't editable per-item — either its data
+            isn't a plain array literal in this file, or its content is more
+            than a single bound field — so text edits will show in the
+            preview but won't be saved. Edit the underlying data instead.
+          </p>
         </div>
       )}
 
@@ -778,7 +866,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                           ? "linear-gradient(135deg,#555 25%,transparent 25%,transparent 75%,#555 75%)"
                           : preset.bg,
                       borderColor: isActive
-                        ? "rgba(168,85,247,0.6)"
+                        ? "color-mix(in oklch, var(--ring) 60%, transparent)"
                         : "rgba(255,255,255,0.08)",
                     }}
                   />
